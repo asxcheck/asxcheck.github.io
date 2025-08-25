@@ -9,15 +9,15 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     :root {
-      --bg: #0f1220;
-      --card: #14192b;
-      --card-2: #1c2133;
-      --muted: #98a2b3;
-      --text: #e8eaf6;
-      --accent: #4f9aff;
-      --grid: rgba(255,255,255,.08);
-      --green: #3bd17b;
-      --red: #ff5c5c;
+  --bg: #0b0f1a;
+  --card: #12182a;
+  --card-2: #1a2033;
+  --muted: #8b96a9;
+  --text: #e6eaf3;
+  --accent: #2ea7ff;
+  --grid: rgba(255,255,255,.08);
+  --green: #27c782;
+  --red: #ff5c5c;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -113,6 +113,8 @@
       background: linear-gradient(180deg, rgba(7,12,28,.6), rgba(7,12,28,.3));
       border: 1px solid var(--grid);
     }
+    .stockItem:hover { border-color: var(--accent); background: linear-gradient(180deg, rgba(10,16,34,.7), rgba(10,16,34,.45)); cursor: pointer; }
+  .stockItem.primary { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .stockItem .left {
       display: grid; grid-template-columns: auto 1fr;
       gap: 8px; align-items: center;
@@ -120,13 +122,27 @@
     .stockItem .checkbox {
       display: inline-flex; align-items: center; gap: 8px;
     }
+    .stockItem .checkbox input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none; -moz-appearance: none;
+      width: 18px; height: 18px; border: 2px solid var(--grid);
+      border-radius: 4px; display: inline-block; position: relative;
+      background: transparent; transition: all .15s ease;
+    }
+    .stockItem .checkbox input[type="checkbox"]:hover { border-color: var(--accent); }
+    .stockItem .checkbox input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+    .stockItem .checkbox input[type="checkbox"]:checked::after {
+      content: ''; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px;
+      border: 2px solid #fff; border-top: 0; border-left: 0; transform: rotate(45deg);
+    }
+  .chkLabel { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
     .stockName { font-weight: 600; font-size: 0.9rem; }
     .stockSymbol { color: var(--muted); font-size: .85rem; }
     .stockRowRight {
       text-align: right;
       min-width: 120px;
     }
-    .price { font-weight: 700; }
+    .price { font-weight: 700; font-feature-settings: 'tnum' 1; }
+    .deltaBadge { display:inline-block; margin-left:8px; padding:2px 6px; border-radius:6px; font-size:.72rem; font-weight:700; }
 
     .statCard {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
@@ -230,10 +246,18 @@
 
     <!-- Interactive chart -->
     <section id="chartCard" class="panel" aria-label="Interactive price chart for selected stocks">
-      <div style="padding:6px 6px 0 6px; display:flex; justify-content: space-between; align-items: center;">
+      <div style="padding:6px 6px 0 6px; display:flex; justify-content: space-between; align-items: center; gap:8px; flex-wrap:wrap">
         <div style="font-weight:700; font-size:1rem;">Price Movement</div>
-        <div style="font-size:.85rem; color:var(--muted)">Live updates update every second</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-left:auto">
+          <div style="font-size:.85rem; color:var(--muted)">Updates every second</div>
+          <div id="compareControls" style="display:flex; align-items:center; gap:6px;">
+            <input id="compareInput" list="symbolsList" placeholder="Compare (e.g., CBA.AX)" aria-label="Add comparison symbol" style="padding:6px 8px; border-radius:8px; border:1px solid var(--grid); background:#0a1130; color:var(--text); width:180px;" />
+            <button id="compareAddBtn" title="Add" style="padding:6px 8px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">Add</button>
+            <div id="compareTags" style="display:flex; gap:6px; flex-wrap:wrap"></div>
+          </div>
+        </div>
       </div>
+      <datalist id="symbolsList"></datalist>
       <canvas id="priceChart" height="420" aria-label="Price chart canvas"></canvas>
     </section>
   </main>
@@ -262,7 +286,7 @@
       // Set to a proxy base that mirrors Yahoo paths, e.g.
       //   https://your-worker.example.workers.dev
       // The app will call: `${YAHOO_PROXY}/v7/finance/quote?...` and `/v8/finance/chart/...`
-      YAHOO_PROXY: '',
+      YAHOO_PROXY: 'https://asx.mrlaurules.workers.dev',
     };
 
     const CATALOG = [
@@ -276,6 +300,8 @@
     ];
     const state = {
       selected: new Set(['BHP.AX','CSL.AX','CBA.AX']),
+  primarySymbol: 'BHP.AX',
+  compareSymbols: new Set(),
       prices: {},
       volumes: {},
       history: {},
@@ -298,6 +324,10 @@
     const summaryPanel = document.getElementById('summaryPanel');
   const exportAiBtn = document.getElementById('exportAiBtn');
   const dataSourceBtn = document.getElementById('dataSourceBtn');
+  const compareInput = document.getElementById('compareInput');
+  const compareAddBtn = document.getElementById('compareAddBtn');
+  const compareTags = document.getElementById('compareTags');
+  const symbolsList = document.getElementById('symbolsList');
 
     function fmt(n) {
       if (n === undefined || n === null || Number.isNaN(n)) return '-';
@@ -325,7 +355,7 @@
         state.chart = null;
       }
       const datasets = [];
-      state.selected.forEach((sym) => {
+    state.selected.forEach((sym) => {
         const color = colorForSymbol(sym);
         datasets.push({
           label: sym,
@@ -333,7 +363,7 @@
           borderColor: color,
           backgroundColor: color + '44',
           fill: false,
-          tension: 0.25,
+      tension: 0,
           pointRadius: 0,
           borderWidth: 2,
           parsing: false
@@ -352,7 +382,7 @@
           animation: false,
           interaction: { mode: 'nearest', intersect: false },
           plugins: {
-            legend: { display: true, position: 'top' },
+            legend: { display: true, position: 'top', labels: { color: 'var(--muted)', usePointStyle: true, boxHeight: 6, boxWidth: 10 } },
             tooltip: {
               mode: 'index',
               intersect: false,
@@ -374,9 +404,10 @@
             },
             y: {
               beginAtZero: false,
+              position: 'right',
               grid: { color: 'var(--grid)' },
               title: { display: true, text: 'Price (AUD)' },
-              ticks: { color: 'var(--text)' }
+              ticks: { color: 'var(--muted)' }
             }
           }
         }
@@ -420,6 +451,46 @@
         }
       }
       state.chart.update('none');
+    }
+
+    function updateSelectedFromPrimaryAndCompare() {
+      const newSelected = new Set([state.primarySymbol, ...state.compareSymbols]);
+      // Remove datasets not in newSelected
+      for (const sym of Array.from(state.selected)) {
+        if (!newSelected.has(sym)) {
+          const ds = state.chartDatasets[sym];
+          if (ds) {
+            const idx = state.chart.data.datasets.indexOf(ds);
+            if (idx !== -1) state.chart.data.datasets.splice(idx, 1);
+            delete state.chartDatasets[sym];
+          }
+        }
+      }
+      // Add datasets for new symbols
+      for (const sym of Array.from(newSelected)) {
+        ensureSymbolDataset(sym);
+      }
+      state.selected = newSelected;
+      state.chart.update('none');
+      renderSummaryTiles();
+      renderCatalogList(searchInput.value);
+    }
+
+    function setPrimary(sym) {
+      if (!sym) return;
+      state.primarySymbol = sym;
+      updateSelectedFromPrimaryAndCompare();
+    }
+
+    function addCompare(sym) {
+      if (!sym || sym === state.primarySymbol) return;
+      state.compareSymbols.add(sym);
+      updateSelectedFromPrimaryAndCompare();
+    }
+
+    function removeCompare(sym) {
+      state.compareSymbols.delete(sym);
+      updateSelectedFromPrimaryAndCompare();
     }
 
     function renderSummaryTiles() {
@@ -561,7 +632,7 @@
       let lastTimestamps = {};
       let noDataCount = 0;
       const onGithubPages = /\.github\.io$/i.test(location.hostname);
-      // If we are on GH Pages and no proxy configured, go straight to demo mode
+  // If we are on GH Pages and no proxy configured, go straight to demo mode
       if (onGithubPages && !CONFIG.YAHOO_PROXY) {
         showNoDataMessage();
         startDemoFeed();
@@ -570,8 +641,8 @@
       // Poll Yahoo Finance every 5 seconds (faster, but don't abuse)
       async function poll() {
         const syms = Array.from(state.selected);
-        let gotAny = false;
         const batch = await fetchYahooFinanceQuotes(syms);
+        let gotAny = Object.keys(batch).length > 0;
         for (const sym of syms) {
           const result = batch[sym];
           if (result && !isNaN(result.price)) {
@@ -579,16 +650,17 @@
             lastVolumes[sym] = result.volume;
             lastTimestamps[sym] = result.ts;
             pushPricePoint(sym, result.price, result.ts, result.volume);
-            gotAny = true;
           }
         }
         if (!gotAny) {
           noDataCount++;
           if (noDataCount >= 2) {
             showNoDataMessage();
-            // fallback to mock data
-            startDemoFeed();
-            return;
+            // If a proxy is configured, keep retrying without falling back to demo
+            if (!CONFIG.YAHOO_PROXY) {
+              startDemoFeed();
+              return;
+            }
           }
         } else {
           noDataCount = 0;
@@ -655,7 +727,9 @@
         msg.style.borderRadius = '8px';
         msg.style.zIndex = '1000';
         msg.style.fontWeight = 'bold';
-        msg.innerText = 'Live data unavailable (CORS). Add a Yahoo proxy in Data source settings to enable live prices.';
+            msg.innerText = CONFIG.YAHOO_PROXY
+              ? 'Data temporarily unavailable. Retrying with proxy…'
+              : 'Live data unavailable (CORS). Add a Yahoo proxy in Data source settings to enable live prices.';
         document.body.appendChild(msg);
       }
     }
@@ -685,51 +759,40 @@
         const symbol = item.symbol;
         const isSelected = state.selected.has(symbol);
         const row = document.createElement('div');
-        row.className = 'stockItem';
+        row.className = 'stockItem' + (symbol === state.primarySymbol ? ' primary' : '');
+        const price = state.prices[symbol];
+        const open = state.openingPrice[symbol] ?? price;
+        const delta = price != null && open != null ? price - open : 0;
+        const deltaPct = open ? (delta / open * 100) : 0;
         row.innerHTML = `
           <div class="left">
-            <div class="checkbox" aria-label="Toggle ${symbol}">
-              <input type="checkbox" id="chk-${symbol}" ${isSelected ? 'checked' : ''} />
-            </div>
-            <div>
-              <div class="stockName" title="${item.name}">${item.name}</div>
-              <div class="stockSymbol" style="margin-top:2px">${symbol}</div>
-            </div>
+            <label class="chkLabel" for="chk-${symbol}" aria-label="Toggle ${symbol}">
+              <span class="checkbox"><input type="checkbox" id="chk-${symbol}" ${isSelected ? 'checked' : ''} /></span>
+              <span>
+                <div class="stockName" title="${item.name}">${item.name}</div>
+                <div class="stockSymbol" style="margin-top:2px">${symbol}</div>
+              </span>
+            </label>
           </div>
           <div class="stockRowRight" aria-label="Current price for ${symbol}">
-            <span id="latest-${symbol}" style="font-weight:700; font-feature-settings: 'tnum' 1">${state.prices[symbol] != null ? fmt(state.prices[symbol]) : '-'}</span>
+            <span id="latest-${symbol}" class="price">${price != null ? fmt(price) : '-'}</span>
+            <span class="deltaBadge" style="background:${delta >= 0 ? 'rgba(39,199,130,.15)' : 'rgba(255,92,92,.15)'}; color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '▲' : '▼'} ${isFinite(deltaPct) ? fmt(deltaPct) : '0.00'}%</span>
           </div>
         `;
         stockListEl.appendChild(row);
-         const chk = row.querySelector('input[type="checkbox"]');
-          chk.addEventListener('change', (e) => {
+        // Row click sets primary symbol for focused view
+        row.addEventListener('click', (ev) => {
+          const target = ev.target;
+          if (target && target.closest && target.closest('label')) return; // ignore checkbox/label
+          setPrimary(symbol);
+        });
+        const chk = row.querySelector('input[type="checkbox"]');
+        chk.addEventListener('change', async (e) => {
           if (e.target.checked) {
-            state.selected.add(symbol);
-            ensureSymbolDataset(symbol);
-            if (!state.chartDatasets[symbol]) {
-              const color = colorForSymbol(symbol);
-              const ds = {
-                label: symbol,
-                data: [],
-                borderColor: color,
-                backgroundColor: color + '44',
-                fill: false,
-                tension: 0.25,
-                parsing: false
-              };
-              state.chart.data.datasets.push(ds);
-              state.chartDatasets[symbol] = ds;
-            }
-            state.chart.update('none');
+            addCompare(symbol);
+            try { await seedHistory([symbol]); } catch {}
           } else {
-            state.selected.delete(symbol);
-            const ds = state.chartDatasets[symbol];
-            if (ds) {
-              const idx = state.chart.data.datasets.indexOf(ds);
-              if (idx !== -1) state.chart.data.datasets.splice(idx, 1);
-              delete state.chartDatasets[symbol];
-              state.chart.update('none');
-            }
+            removeCompare(symbol);
           }
           renderSummaryTiles();
         });
@@ -745,7 +808,7 @@
           borderColor: color,
           backgroundColor: color + '44',
           fill: false,
-          tension: 0.25,
+          tension: 0,
           parsing: false
         };
         state.chart.data.datasets.push(ds);
@@ -813,6 +876,43 @@
       downloadAIData();
     });
 
+    // Compare controls
+    function renderCompareTags() {
+      if (!compareTags) return;
+      compareTags.innerHTML = '';
+      Array.from(state.compareSymbols).forEach(sym => {
+        const tag = document.createElement('span');
+        tag.style.padding = '4px 8px';
+        tag.style.border = '1px solid var(--grid)';
+        tag.style.borderRadius = '999px';
+        tag.style.fontSize = '.78rem';
+        tag.style.background = 'rgba(255,255,255,.04)';
+        tag.style.display = 'inline-flex';
+        tag.style.alignItems = 'center';
+        tag.style.gap = '6px';
+        tag.innerHTML = `${sym} <button aria-label="Remove ${sym}" style="background:transparent; color:var(--muted); border:0; cursor:pointer">✕</button>`;
+        tag.querySelector('button')?.addEventListener('click', () => removeCompare(sym));
+        compareTags.appendChild(tag);
+      });
+    }
+    function setupCompareControls() {
+      if (!symbolsList) return;
+      // Populate datalist
+      symbolsList.innerHTML = CATALOG.map(c => `<option value="${c.symbol}">${c.name}</option>`).join('');
+      const addFromInput = () => {
+        const val = (compareInput.value || '').trim().toUpperCase();
+        compareInput.value = '';
+        if (!val) return;
+        const exists = CATALOG.some(c => c.symbol.toUpperCase() === val);
+        if (!exists) return;
+        addCompare(val);
+        seedHistory([val]).catch(()=>{});
+        renderCompareTags();
+      };
+      compareAddBtn?.addEventListener('click', addFromInput);
+      compareInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addFromInput(); });
+    }
+
     // == INITIALIZATION ==
   function bootstrapChart() { initChart(); }
     renderCatalogList();
@@ -860,7 +960,7 @@
     function loadSavedConfig() {
       try {
         const saved = localStorage.getItem('asx_yahoo_proxy');
-        if (saved) CONFIG.YAHOO_PROXY = saved;
+  if (saved && saved.trim() !== '') CONFIG.YAHOO_PROXY = saved;
       } catch {}
     }
 
@@ -912,8 +1012,14 @@
     async function init() {
       loadSavedConfig();
       bootstrapChart();
+  // Initialize primary as first of default selection if not present
+  if (!state.primarySymbol) state.primarySymbol = Array.from(state.selected)[0];
+  // Compare symbols start as the rest of the default selection
+  state.compareSymbols = new Set(Array.from(state.selected).filter(s => s !== state.primarySymbol));
+  updateSelectedFromPrimaryAndCompare();
+  setupCompareControls();
       // Seed if possible; non-blocking start of live feed
-      seedHistory(Array.from(state.selected)).finally(() => {
+  seedHistory([state.primarySymbol, ...state.compareSymbols]).finally(() => {
         startYahooFinanceFeed();
       });
     }
