@@ -103,6 +103,11 @@
 
     #stockList { display: grid; gap: 6px; max-height: calc(100% - 50px); overflow: auto; padding-right: 6px; }
 
+  /* Watchlist rows as a grid-like list */
+  .listHeader { display:grid; grid-template-columns: 120px 1fr 130px 110px; gap:8px; padding:6px 8px; color:var(--muted); font-size:.8rem; border-bottom:1px solid var(--grid); position: sticky; top: 0; background: linear-gradient(180deg, rgba(20,25,50,.98), rgba(20,25,50,.96)); z-index:1; border-radius:8px; }
+  .stockItem { grid-template-columns: 120px 1fr 130px 110px; }
+  .colSymbol { font-weight:700; letter-spacing:.2px; }
+
     .stockItem {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -144,6 +149,12 @@
     .price { font-weight: 700; font-feature-settings: 'tnum' 1; }
     .deltaBadge { display:inline-block; margin-left:8px; padding:2px 6px; border-radius:6px; font-size:.72rem; font-weight:700; }
 
+  /* Range selector */
+  .rangeGroup { display:flex; gap:6px; background: rgba(255,255,255,.04); padding:4px; border-radius:10px; border:1px solid var(--grid); }
+  .rangeGroup button { padding:6px 8px; border-radius:8px; border:1px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font-weight:600; font-size:.82rem; }
+  .rangeGroup button:hover { color: var(--text); border-color: var(--grid); }
+  .rangeGroup button.active { background:#0a1130; color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(46,167,255,.25) inset; }
+
     .statCard {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
       margin-top: 8px;
@@ -161,12 +172,12 @@
 
     #chartCard {
       min-height: 400px;
-      display: grid; grid-template-rows: auto 1fr;
+  display: grid; grid-template-rows: auto 2fr 1fr;
       overflow: hidden;
     }
       #chartCard canvas {
       width: 100% !important;
-       height: 420px !important;
+   height: 100% !important;
         }
 
     @media (max-width: 980px) {
@@ -237,6 +248,12 @@
         <input id="searchInput" type="search" placeholder="Search ASX stocks…" aria-label="Search stocks" />
       </div>
       <div id="stockList" aria-label="List of available stocks">
+        <div class="listHeader" role="row">
+          <div>Ticker</div>
+          <div>Company</div>
+          <div>Last</div>
+          <div>Change</div>
+        </div>
         <!-- Dynamically generated rows -->
       </div>
       <div class="statCard" id="summaryPanel" aria-label="Basic summary stats for selected stocks">
@@ -248,17 +265,21 @@
     <section id="chartCard" class="panel" aria-label="Interactive price chart for selected stocks">
       <div style="padding:6px 6px 0 6px; display:flex; justify-content: space-between; align-items: center; gap:8px; flex-wrap:wrap">
         <div style="font-weight:700; font-size:1rem;">Price Movement</div>
-        <div style="display:flex; align-items:center; gap:8px; margin-left:auto">
-          <div style="font-size:.85rem; color:var(--muted)">Updates every second</div>
-          <div id="compareControls" style="display:flex; align-items:center; gap:6px;">
-            <input id="compareInput" list="symbolsList" placeholder="Compare (e.g., CBA.AX)" aria-label="Add comparison symbol" style="padding:6px 8px; border-radius:8px; border:1px solid var(--grid); background:#0a1130; color:var(--text); width:180px;" />
-            <button id="compareAddBtn" title="Add" style="padding:6px 8px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">Add</button>
-            <div id="compareTags" style="display:flex; gap:6px; flex-wrap:wrap"></div>
-          </div>
+        <div class="rangeGroup" id="rangeGroup" aria-label="Time range selector">
+          <button data-range="30m" class="active">30m</button>
+          <button data-range="5h">5h</button>
+          <button data-range="12h">12h</button>
+          <button data-range="1d">1d</button>
+          <button data-range="5d">5d</button>
+          <button data-range="1w">1w</button>
+          <button data-range="1mo">1mo</button>
+          <button data-range="6mo">6mo</button>
+          <button data-range="1y">1y</button>
+          <button data-range="max">Max</button>
         </div>
       </div>
-      <datalist id="symbolsList"></datalist>
-      <canvas id="priceChart" height="420" aria-label="Price chart canvas"></canvas>
+  <canvas id="priceChart" aria-label="Price chart canvas"></canvas>
+  <canvas id="volumeChart" aria-label="Volume chart canvas"></canvas>
     </section>
   </main>
   <!-- Simple password gate (client-side only) -->
@@ -299,14 +320,14 @@
       { symbol: 'ANZ.AX', name: 'Australia and New Zealand Banking Group', color: '#f57c00' },
     ];
     const state = {
-      selected: new Set(['BHP.AX','CSL.AX','CBA.AX']),
-  primarySymbol: 'BHP.AX',
-  compareSymbols: new Set(),
+      selected: new Set(['BHP.AX']),
+      primarySymbol: 'BHP.AX',
       prices: {},
       volumes: {},
       history: {},
       openingPrice: {},
       chart: null,
+  volumeChart: null,
       chartDatasets: {},
       lastUpdate: 0,
       colorsBySymbol: {},
@@ -320,14 +341,11 @@
     // == UI HELPERS ==
     const stockListEl = document.getElementById('stockList');
     const searchInput = document.getElementById('searchInput');
-    const priceChartCtx = document.getElementById('priceChart').getContext('2d');
+  const priceChartCtx = document.getElementById('priceChart').getContext('2d');
+  const volumeChartCtx = document.getElementById('volumeChart').getContext('2d');
     const summaryPanel = document.getElementById('summaryPanel');
   const exportAiBtn = document.getElementById('exportAiBtn');
   const dataSourceBtn = document.getElementById('dataSourceBtn');
-  const compareInput = document.getElementById('compareInput');
-  const compareAddBtn = document.getElementById('compareAddBtn');
-  const compareTags = document.getElementById('compareTags');
-  const symbolsList = document.getElementById('symbolsList');
 
     function fmt(n) {
       if (n === undefined || n === null || Number.isNaN(n)) return '-';
@@ -353,6 +371,10 @@
       if (state.chart) {
         state.chart.destroy();
         state.chart = null;
+      }
+      if (state.volumeChart) {
+        state.volumeChart.destroy();
+        state.volumeChart = null;
       }
       const datasets = [];
     state.selected.forEach((sym) => {
@@ -412,6 +434,29 @@
           }
         }
       });
+
+      // Volume chart (stacked bars), shares the same x-scale time domain
+      state.volumeChart = new Chart(volumeChartCtx, {
+        type: 'bar',
+        data: { datasets: [] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `Vol: ${ctx.raw?.y ?? ctx.parsed?.y ?? ''}`
+              }
+            }
+          },
+          scales: {
+            x: { type: 'time', time: { displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } }, grid: { color: 'var(--grid)' }, ticks: { color: 'var(--muted)' } },
+            y: { position: 'right', grid: { color: 'var(--grid)' }, ticks: { color: 'var(--muted)' } }
+          }
+        }
+      });
     }
 
     function pushPricePoint(symbol, price, ts, volume) {
@@ -450,47 +495,34 @@
           other.data.push({ x: ts, y: last });
         }
       }
-      state.chart.update('none');
-    }
-
-    function updateSelectedFromPrimaryAndCompare() {
-      const newSelected = new Set([state.primarySymbol, ...state.compareSymbols]);
-      // Remove datasets not in newSelected
-      for (const sym of Array.from(state.selected)) {
-        if (!newSelected.has(sym)) {
-          const ds = state.chartDatasets[sym];
-          if (ds) {
-            const idx = state.chart.data.datasets.indexOf(ds);
-            if (idx !== -1) state.chart.data.datasets.splice(idx, 1);
-            delete state.chartDatasets[sym];
-          }
+      // Update volume bars for primary symbol only
+      if (symbol === state.primarySymbol && state.volumeChart) {
+        // Ensure a single dataset exists
+        if (state.volumeChart.data.datasets.length === 0) {
+          state.volumeChart.data.datasets.push({ label: 'Volume', data: [], borderSkipped: false, barPercentage: 1.0, categoryPercentage: 1.0 });
         }
+        const vds = state.volumeChart.data.datasets[0];
+        const prev = state.history[symbol].length > 1 ? state.history[symbol][state.history[symbol].length - 2].price : price;
+        const isUp = price >= prev;
+        vds.data.push({ x: ts, y: volume, backgroundColor: isUp ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)' });
+        const MAX_BARS = 600;
+        if (vds.data.length > MAX_BARS) vds.data.shift();
       }
-      // Add datasets for new symbols
-      for (const sym of Array.from(newSelected)) {
-        ensureSymbolDataset(sym);
-      }
-      state.selected = newSelected;
+
       state.chart.update('none');
-      renderSummaryTiles();
-      renderCatalogList(searchInput.value);
+      state.volumeChart?.update('none');
     }
 
     function setPrimary(sym) {
       if (!sym) return;
       state.primarySymbol = sym;
-      updateSelectedFromPrimaryAndCompare();
-    }
-
-    function addCompare(sym) {
-      if (!sym || sym === state.primarySymbol) return;
-      state.compareSymbols.add(sym);
-      updateSelectedFromPrimaryAndCompare();
-    }
-
-    function removeCompare(sym) {
-      state.compareSymbols.delete(sym);
-      updateSelectedFromPrimaryAndCompare();
+      state.selected = new Set([sym]);
+      // Rebuild datasets for single symbol
+      initChart();
+      // Seed and start polling will continue to push updates
+      seedHistory([sym]).catch(()=>{});
+      renderSummaryTiles();
+      renderCatalogList(searchInput.value);
     }
 
     function renderSummaryTiles() {
@@ -625,19 +657,31 @@
       }
     }
 
+    // Map UI ranges to Yahoo range/interval
+    function rangeToYahoo(rangeKey) {
+      switch (rangeKey) {
+        case '30m': return { range: '1d', interval: '1m' };
+        case '5h': return { range: '1d', interval: '5m' };
+        case '12h': return { range: '5d', interval: '15m' };
+        case '1d': return { range: '1d', interval: '1m' };
+        case '5d': return { range: '5d', interval: '5m' };
+        case '1w': return { range: '5d', interval: '15m' };
+        case '1mo': return { range: '1mo', interval: '1h' };
+        case '6mo': return { range: '6mo', interval: '1d' };
+        case '1y': return { range: '1y', interval: '1d' };
+        case 'max': return { range: 'max', interval: '1wk' };
+        default: return { range: '1d', interval: '1m' };
+      }
+    }
+
   function startYahooFinanceFeed() {
       // Store last fetched prices
       let lastPrices = {};
       let lastVolumes = {};
       let lastTimestamps = {};
       let noDataCount = 0;
-      const onGithubPages = /\.github\.io$/i.test(location.hostname);
-  // If we are on GH Pages and no proxy configured, go straight to demo mode
-      if (onGithubPages && !CONFIG.YAHOO_PROXY) {
-        showNoDataMessage();
-        startDemoFeed();
-        return;
-      }
+  const onGithubPages = /\.github\.io$/i.test(location.hostname);
+  // If we are on GH Pages and no proxy configured, keep running without banner; data may be empty
       // Poll Yahoo Finance every 5 seconds (faster, but don't abuse)
       async function poll() {
         const syms = Array.from(state.selected);
@@ -652,20 +696,7 @@
             pushPricePoint(sym, result.price, result.ts, result.volume);
           }
         }
-        if (!gotAny) {
-          noDataCount++;
-          if (noDataCount >= 2) {
-            showNoDataMessage();
-            // If a proxy is configured, keep retrying without falling back to demo
-            if (!CONFIG.YAHOO_PROXY) {
-              startDemoFeed();
-              return;
-            }
-          }
-        } else {
-          noDataCount = 0;
-          hideNoDataMessage();
-        }
+  // No banner; keep retrying silently
         setTimeout(poll, 5000); // 5 seconds
       }
       poll();
@@ -680,8 +711,7 @@
             pushPricePoint(sym, lastPrices[sym], now, lastVolumes[sym]);
           }
         });
-        updateLivePricesUI();
-        renderSummaryTiles();
+  updateLivePricesUI();
       }, 1000);
     }
 
@@ -712,31 +742,7 @@
     }
 
     // Show/hide a message if no data is available
-  function showNoDataMessage() {
-      let msg = document.getElementById('noDataMsg');
-      if (!msg) {
-        msg = document.createElement('div');
-        msg.id = 'noDataMsg';
-        msg.style.position = 'fixed';
-        msg.style.top = '60px';
-        msg.style.left = '50%';
-        msg.style.transform = 'translateX(-50%)';
-        msg.style.background = '#ff5c5c';
-        msg.style.color = '#fff';
-        msg.style.padding = '12px 24px';
-        msg.style.borderRadius = '8px';
-        msg.style.zIndex = '1000';
-        msg.style.fontWeight = 'bold';
-            msg.innerText = CONFIG.YAHOO_PROXY
-              ? 'Data temporarily unavailable. Retrying with proxy…'
-              : 'Live data unavailable (CORS). Add a Yahoo proxy in Data source settings to enable live prices.';
-        document.body.appendChild(msg);
-      }
-    }
-    function hideNoDataMessage() {
-      const msg = document.getElementById('noDataMsg');
-      if (msg) msg.remove();
-    }
+  // No data message removed per request
 
     // Fallback: Demo feed (mock data)
     function startDemoFeed() {
@@ -757,45 +763,22 @@
         const match = !q || item.name.toLowerCase().includes(q) || item.symbol.toLowerCase().includes(q);
         if (!match) return;
         const symbol = item.symbol;
-        const isSelected = state.selected.has(symbol);
+        const isSelected = state.primarySymbol === symbol;
         const row = document.createElement('div');
-        row.className = 'stockItem' + (symbol === state.primarySymbol ? ' primary' : '');
+        row.className = 'stockItem' + (isSelected ? ' primary' : '');
         const price = state.prices[symbol];
         const open = state.openingPrice[symbol] ?? price;
         const delta = price != null && open != null ? price - open : 0;
         const deltaPct = open ? (delta / open * 100) : 0;
         row.innerHTML = `
-          <div class="left">
-            <label class="chkLabel" for="chk-${symbol}" aria-label="Toggle ${symbol}">
-              <span class="checkbox"><input type="checkbox" id="chk-${symbol}" ${isSelected ? 'checked' : ''} /></span>
-              <span>
-                <div class="stockName" title="${item.name}">${item.name}</div>
-                <div class="stockSymbol" style="margin-top:2px">${symbol}</div>
-              </span>
-            </label>
-          </div>
-          <div class="stockRowRight" aria-label="Current price for ${symbol}">
-            <span id="latest-${symbol}" class="price">${price != null ? fmt(price) : '-'}</span>
-            <span class="deltaBadge" style="background:${delta >= 0 ? 'rgba(39,199,130,.15)' : 'rgba(255,92,92,.15)'}; color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '▲' : '▼'} ${isFinite(deltaPct) ? fmt(deltaPct) : '0.00'}%</span>
-          </div>
+          <div class="colSymbol">${symbol}</div>
+          <div class="colName" title="${item.name}">${item.name}</div>
+          <div class="colLast" aria-label="Current price for ${symbol}"><span id="latest-${symbol}" class="price">${price != null ? fmt(price) : '-'}</span></div>
+          <div class="colChange"><span class="deltaBadge" style="background:${delta >= 0 ? 'rgba(39,199,130,.15)' : 'rgba(255,92,92,.15)'}; color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '▲' : '▼'} ${isFinite(deltaPct) ? fmt(deltaPct) : '0.00'}%</span></div>
         `;
         stockListEl.appendChild(row);
-        // Row click sets primary symbol for focused view
-        row.addEventListener('click', (ev) => {
-          const target = ev.target;
-          if (target && target.closest && target.closest('label')) return; // ignore checkbox/label
-          setPrimary(symbol);
-        });
-        const chk = row.querySelector('input[type="checkbox"]');
-        chk.addEventListener('change', async (e) => {
-          if (e.target.checked) {
-            addCompare(symbol);
-            try { await seedHistory([symbol]); } catch {}
-          } else {
-            removeCompare(symbol);
-          }
-          renderSummaryTiles();
-        });
+        // Row click selects this symbol only
+        row.addEventListener('click', () => setPrimary(symbol));
       });
     }
 
@@ -876,42 +859,7 @@
       downloadAIData();
     });
 
-    // Compare controls
-    function renderCompareTags() {
-      if (!compareTags) return;
-      compareTags.innerHTML = '';
-      Array.from(state.compareSymbols).forEach(sym => {
-        const tag = document.createElement('span');
-        tag.style.padding = '4px 8px';
-        tag.style.border = '1px solid var(--grid)';
-        tag.style.borderRadius = '999px';
-        tag.style.fontSize = '.78rem';
-        tag.style.background = 'rgba(255,255,255,.04)';
-        tag.style.display = 'inline-flex';
-        tag.style.alignItems = 'center';
-        tag.style.gap = '6px';
-        tag.innerHTML = `${sym} <button aria-label="Remove ${sym}" style="background:transparent; color:var(--muted); border:0; cursor:pointer">✕</button>`;
-        tag.querySelector('button')?.addEventListener('click', () => removeCompare(sym));
-        compareTags.appendChild(tag);
-      });
-    }
-    function setupCompareControls() {
-      if (!symbolsList) return;
-      // Populate datalist
-      symbolsList.innerHTML = CATALOG.map(c => `<option value="${c.symbol}">${c.name}</option>`).join('');
-      const addFromInput = () => {
-        const val = (compareInput.value || '').trim().toUpperCase();
-        compareInput.value = '';
-        if (!val) return;
-        const exists = CATALOG.some(c => c.symbol.toUpperCase() === val);
-        if (!exists) return;
-        addCompare(val);
-        seedHistory([val]).catch(()=>{});
-        renderCompareTags();
-      };
-      compareAddBtn?.addEventListener('click', addFromInput);
-      compareInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addFromInput(); });
-    }
+  // Compare controls removed
 
     // == INITIALIZATION ==
   function bootstrapChart() { initChart(); }
@@ -955,6 +903,34 @@
       await Promise.allSettled(tasks);
       state.chart.update('none');
       renderSummaryTiles();
+    }
+
+    async function loadRangeForPrimary(rangeKey) {
+      const { range, interval } = rangeToYahoo(rangeKey);
+      const sym = state.primarySymbol;
+      try {
+        const points = await fetchYahooChartHistory(sym, range, interval);
+        if (!points || points.length === 0) return;
+        ensureSymbolDataset(sym);
+        const ds = state.chartDatasets[sym];
+        ds.data = points.map(p => ({ x: p.t, y: p.price }));
+        state.prices[sym] = points[points.length - 1].price;
+        state.volumes[sym] = points[points.length - 1].volume;
+        // Rebuild volume bars
+        if (state.volumeChart) {
+          state.volumeChart.data.datasets = [{ label: 'Volume', data: [] }];
+          const vds = state.volumeChart.data.datasets[0];
+          for (let i = 0; i < points.length; i++) {
+            const pt = points[i];
+            const prev = i > 0 ? points[i-1].price : pt.price;
+            const isUp = pt.price >= prev;
+            vds.data.push({ x: pt.t, y: pt.volume ?? 0, backgroundColor: isUp ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)' });
+          }
+        }
+        state.chart.update('none');
+        state.volumeChart?.update('none');
+        renderSummaryTiles();
+      } catch {}
     }
 
     function loadSavedConfig() {
@@ -1012,14 +988,25 @@
     async function init() {
       loadSavedConfig();
       bootstrapChart();
-  // Initialize primary as first of default selection if not present
-  if (!state.primarySymbol) state.primarySymbol = Array.from(state.selected)[0];
-  // Compare symbols start as the rest of the default selection
-  state.compareSymbols = new Set(Array.from(state.selected).filter(s => s !== state.primarySymbol));
-  updateSelectedFromPrimaryAndCompare();
-  setupCompareControls();
+      // Primary-only model
+      if (!state.primarySymbol) state.primarySymbol = Array.from(state.selected)[0] || 'BHP.AX';
+      state.selected = new Set([state.primarySymbol]);
+      initChart();
+      // Range selector
+      const rangeGroup = document.getElementById('rangeGroup');
+      if (rangeGroup) {
+        rangeGroup.addEventListener('click', (e) => {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          Array.from(rangeGroup.querySelectorAll('button')).forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const key = btn.getAttribute('data-range');
+          if (key) loadRangeForPrimary(key);
+        });
+      }
       // Seed if possible; non-blocking start of live feed
-  seedHistory([state.primarySymbol, ...state.compareSymbols]).finally(() => {
+      const defaultRangeKey = '30m';
+      loadRangeForPrimary(defaultRangeKey).finally(() => {
         startYahooFinanceFeed();
       });
     }
