@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Lightweight, modern UI font -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     :root {
   --bg: #0b0f1a;
@@ -25,6 +24,7 @@
       margin: 0;
       font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto;
       color: var(--text);
+      overflow-x: hidden;
       background: radial-gradient(circle at 20% -10%, rgba(79,154,255,.15) 0%, rgba(79,154,255,.0) 40%),
                   radial-gradient(circle at 100% 0%, rgba(255,255,255,.06) 0%, rgba(255,255,255,.0) 40%),
                   linear-gradient(#0b0e1a, #0b0e1a);
@@ -66,7 +66,7 @@
 
     main.layout {
       display: grid;
-      grid-template-columns: 320px 1fr;
+      grid-template-columns: 420px 1fr;
       gap: 14px;
       padding: 14px 16px 40px;
       max-width: 1200px;
@@ -104,8 +104,8 @@
     #stockList { display: grid; gap: 6px; max-height: calc(100% - 50px); overflow: auto; padding-right: 6px; }
 
   /* Watchlist rows as a grid-like list */
-  .listHeader { display:grid; grid-template-columns: 120px 1fr 130px 110px; gap:8px; padding:6px 8px; color:var(--muted); font-size:.8rem; border-bottom:1px solid var(--grid); position: sticky; top: 0; background: linear-gradient(180deg, rgba(20,25,50,.98), rgba(20,25,50,.96)); z-index:1; border-radius:8px; }
-  .stockItem { grid-template-columns: 120px 1fr 130px 110px; }
+  .listHeader { display:grid; grid-template-columns: 110px 1fr 100px 90px; gap:8px; padding:6px 8px; color:var(--muted); font-size:.8rem; border-bottom:1px solid var(--grid); position: sticky; top: 0; background: linear-gradient(180deg, rgba(20,25,50,.98), rgba(20,25,50,.96)); z-index:1; border-radius:8px; }
+  .stockItem { grid-template-columns: 110px 1fr 100px 90px; }
   .colSymbol { font-weight:700; letter-spacing:.2px; }
 
     .stockItem {
@@ -171,22 +171,21 @@
     .statTile .value { font-size: 1.05rem; font-weight: 700; }
 
     #chartCard {
-      min-height: 400px;
-  display: grid; grid-template-rows: auto 2fr 1fr;
+      --price-h: 360px;
+      --vol-h: 120px;
+      display: grid;
+      grid-template-rows: auto var(--price-h) var(--vol-h);
       overflow: hidden;
     }
-      #chartCard canvas {
-      width: 100% !important;
-   height: 100% !important;
-        }
+  #chartCard canvas { width: 100%; height: 100%; display:block; }
 
     @media (max-width: 980px) {
       main.layout {
-        grid-template-columns: 1fr;
+  grid-template-columns: 1fr;
         padding: 8px 12px 40px;
       }
       #watchPanel { order: 2; }
-      #chartCard { order: 1; height: 420px; }
+  #chartCard { order: 1; --price-h: 280px; --vol-h: 120px; }
     }
 
     /* Auth overlay */
@@ -322,6 +321,7 @@
     const state = {
       selected: new Set(['BHP.AX']),
       primarySymbol: 'BHP.AX',
+  activeRange: '30m',
       prices: {},
       volumes: {},
       history: {},
@@ -341,8 +341,10 @@
     // == UI HELPERS ==
     const stockListEl = document.getElementById('stockList');
     const searchInput = document.getElementById('searchInput');
-  const priceChartCtx = document.getElementById('priceChart').getContext('2d');
-  const volumeChartCtx = document.getElementById('volumeChart').getContext('2d');
+  const priceCanvas = document.getElementById('priceChart');
+  const volumeCanvas = document.getElementById('volumeChart');
+  const priceChartCtx = priceCanvas?.getContext('2d');
+  const volumeChartCtx = volumeCanvas?.getContext('2d');
     const summaryPanel = document.getElementById('summaryPanel');
   const exportAiBtn = document.getElementById('exportAiBtn');
   const dataSourceBtn = document.getElementById('dataSourceBtn');
@@ -365,152 +367,334 @@
       return color;
     }
 
-    // == CHART (Chart.js) ==
+    // == CHART (Custom Canvas) ==
     function initChart() {
-      // Destroy previous chart if it exists
-      if (state.chart) {
-        state.chart.destroy();
-        state.chart = null;
+      if (!priceCanvas || !volumeCanvas) return;
+      // View state
+      if (!state._view) {
+        state._view = {
+          xMin: Date.now() - 60 * 60 * 1000,
+          xMax: Date.now(),
+          padding: { left: 56, right: 56, top: 10, bottom: 8 },
+          cross: { active: false, x: 0, y: 0 },
+          panning: false,
+          panStartPx: 0,
+          panRange: [0, 0],
+        };
       }
-      if (state.volumeChart) {
-        state.volumeChart.destroy();
-        state.volumeChart = null;
-      }
-      const datasets = [];
-    state.selected.forEach((sym) => {
-        const color = colorForSymbol(sym);
-        datasets.push({
-          label: sym,
-          data: [],
-          borderColor: color,
-          backgroundColor: color + '44',
-          fill: false,
-      tension: 0,
-          pointRadius: 0,
-          borderWidth: 2,
-          parsing: false
-        });
-      });
-      state.chartDatasets = {};
-      datasets.forEach(ds => {
-        state.chartDatasets[ds.label] = ds;
-      });
-      state.chart = new Chart(priceChartCtx, {
-        type: 'line',
-        data: { datasets: datasets, labels: [] },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          interaction: { mode: 'nearest', intersect: false },
-          plugins: {
-            legend: { display: true, position: 'top', labels: { color: 'var(--muted)', usePointStyle: true, boxHeight: 6, boxWidth: 10 } },
-            tooltip: {
-              mode: 'index',
-              intersect: false,
-              callbacks: {
-                label: (ctx) => {
-                  const s = ctx.dataset.label;
-                  const price = ctx.raw?.y ?? ctx.parsed?.y ?? '';
-                  return `${s}: ${fmt(price)}`;
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              type: 'time',
-              time: { displayFormats: { millisecond: 'HH:mm:ss', second: 'HH:mm:ss', minute: 'HH:mm', }},
-              grid: { color: 'var(--grid)' },
-              ticks: { color: 'var(--muted)' },
-            },
-            y: {
-              beginAtZero: false,
-              position: 'right',
-              grid: { color: 'var(--grid)' },
-              title: { display: true, text: 'Price (AUD)' },
-              ticks: { color: 'var(--muted)' }
-            }
-          }
-        }
-      });
+      const view = state._view;
 
-      // Volume chart (stacked bars), shares the same x-scale time domain
-      state.volumeChart = new Chart(volumeChartCtx, {
-        type: 'bar',
-        data: { datasets: [] },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => `Vol: ${ctx.raw?.y ?? ctx.parsed?.y ?? ''}`
-              }
-            }
-          },
-          scales: {
-            x: { type: 'time', time: { displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } }, grid: { color: 'var(--grid)' }, ticks: { color: 'var(--muted)' } },
-            y: { position: 'right', grid: { color: 'var(--grid)' }, ticks: { color: 'var(--muted)' } }
+      function setCanvasSize(canvas) {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const rect = canvas.getBoundingClientRect();
+        if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+          canvas.width = Math.floor(rect.width * dpr);
+          canvas.height = Math.floor(rect.height * dpr);
+        }
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return { width: rect.width, height: rect.height };
+      }
+
+      function getData() {
+        const sym = state.primarySymbol;
+        return state.history[sym] || [];
+      }
+
+      function computeYRange(points) {
+        if (!points || points.length === 0) return [0, 1];
+        let min = Infinity, max = -Infinity;
+        for (const p of points) { if (p.price == null) continue; if (p.price < min) min = p.price; if (p.price > max) max = p.price; }
+        if (!isFinite(min) || !isFinite(max)) return [0, 1];
+        if (min === max) { const pad = Math.max(0.5, min * 0.01); return [min - pad, max + pad]; }
+        const pad = (max - min) * 0.08;
+        return [min - pad, max + pad];
+      }
+
+      function computeVolRange(points) {
+        if (!points || points.length === 0) return [0, 1];
+        let max = 0;
+        for (const p of points) { const v = Number(p.volume || 0); if (v > max) max = v; }
+        return [0, max * 1.15 + 1];
+      }
+
+      // Nice ticks for numeric axis
+      function niceStep(min, max, maxTicks = 6) {
+        const span = Math.max(1e-9, max - min);
+        const rough = span / Math.max(1, maxTicks);
+        const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+        const frac = rough / pow10;
+        let niceFrac = 1;
+        if (frac <= 1) niceFrac = 1; else if (frac <= 2) niceFrac = 2; else if (frac <= 2.5) niceFrac = 2.5; else if (frac <= 5) niceFrac = 5; else niceFrac = 10;
+        return niceFrac * pow10;
+      }
+      function genTicks(min, max, maxTicks = 6) {
+        const step = niceStep(min, max, maxTicks);
+        const start = Math.ceil(min / step) * step;
+        const ticks = [];
+        for (let v = start; v <= max + 1e-9; v += step) ticks.push(Number(v.toFixed(10)));
+        return ticks;
+      }
+
+      // Time ticks selection
+      function chooseTimeStep(spanMs) {
+        const min = 60 * 1000, hr = 60 * min, day = 24 * hr, wk = 7 * day, mo = 30 * day;
+        if (spanMs <= 45 * min) return 5 * min;
+        if (spanMs <= 4 * hr) return 15 * min;
+        if (spanMs <= 12 * hr) return 30 * min;
+        if (spanMs <= 2 * day) return 1 * hr;
+        if (spanMs <= 10 * day) return 6 * hr;
+        if (spanMs <= 60 * day) return 1 * day;
+        if (spanMs <= 365 * day) return 1 * wk;
+        return 3 * mo;
+      }
+      function genTimeTicks(minT, maxT) {
+        const step = chooseTimeStep(maxT - minT);
+        const start = Math.floor(minT / step) * step;
+        const ticks = [];
+        for (let t = start; t <= maxT + 1; t += step) ticks.push(t);
+        return { ticks, step };
+      }
+      function fmtTime(t, step) {
+        const d = new Date(t);
+        const min = 60 * 1000, hr = 60 * min, day = 24 * hr;
+        if (step <= 30 * min) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (step <= 6 * hr) return d.toLocaleTimeString([], { hour: '2-digit' });
+        if (step <= day) return d.toLocaleTimeString([], { hour: '2-digit' });
+        if (step <= 60 * day) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        return d.toLocaleDateString([], { month: 'short', year: '2-digit' });
+      }
+
+      function render() {
+        const priceCtx = priceCanvas.getContext('2d');
+        const volCtx = volumeCanvas.getContext('2d');
+        if (!priceCtx || !volCtx) return;
+  const { width: pw, height: ph } = setCanvasSize(priceCanvas);
+  const { width: vw, height: vh } = setCanvasSize(volumeCanvas);
+        const pad = view.padding;
+        const all = getData();
+
+        // Ensure x range
+        if (!isFinite(view.xMin) || !isFinite(view.xMax) || view.xMin >= view.xMax) {
+          const minT = all.length ? all[0].t : Date.now() - 60 * 60 * 1000;
+          const maxT = all.length ? all[all.length - 1].t : Date.now();
+          view.xMin = minT; view.xMax = maxT;
+        }
+
+        // Visible slice
+        const vis = all.filter(p => p.t >= view.xMin && p.t <= view.xMax);
+        // Compute ranges
+        const pricePoints = vis.length ? vis : all;
+        const [yMin, yMax] = computeYRange(pricePoints);
+        const [vMin, vMax] = computeVolRange(pricePoints);
+
+        // Mapping
+        const xToPx = (t, w) => {
+          const span = Math.max(1, view.xMax - view.xMin);
+          const inner = w - pad.left - pad.right;
+          return pad.left + (t - view.xMin) / span * inner;
+        };
+        const yToPx = (y, h) => {
+          const inner = h - pad.top - pad.bottom;
+          return pad.top + (1 - (y - yMin) / Math.max(1e-9, (yMax - yMin))) * inner;
+        };
+        const volToPx = (y, h) => {
+          const inner = h - pad.top - pad.bottom;
+          return pad.top + (1 - (y - vMin) / Math.max(1e-9, (vMax - vMin))) * inner;
+        };
+
+        // Clear
+        priceCtx.clearRect(0, 0, pw, ph);
+        volCtx.clearRect(0, 0, vw, vh);
+
+        // Grid + Y axis labels on price chart
+        priceCtx.save();
+        const grid = getComputedStyle(document.documentElement).getPropertyValue('--grid') || 'rgba(255,255,255,.08)';
+        priceCtx.strokeStyle = grid; priceCtx.lineWidth = 1;
+  priceCtx.fillStyle = '#e5e7eb'; priceCtx.font = '600 12px Inter, system-ui, sans-serif';
+        const yTicks = genTicks(yMin, yMax, 6);
+        yTicks.forEach(v => {
+          const y = yToPx(v, ph);
+          priceCtx.beginPath(); priceCtx.moveTo(pad.left, y); priceCtx.lineTo(pw - pad.right, y); priceCtx.stroke();
+          const label = Number(v).toFixed(2);
+          priceCtx.fillText(label, pw - pad.right + 6, y + 4);
+        });
+        priceCtx.restore();
+
+  // Time ticks (compute once)
+  const tickData = genTimeTicks(view.xMin, view.xMax);
+  const tTicks = tickData.ticks;
+  const tStep = tickData.step;
+
+  // Time ticks on volume chart
+        volCtx.save();
+        volCtx.strokeStyle = grid; volCtx.lineWidth = 1;
+  volCtx.fillStyle = '#e5e7eb'; volCtx.font = '600 12px Inter, system-ui, sans-serif';
+        tTicks.forEach(t => {
+          const x = xToPx(t, vw);
+          volCtx.beginPath(); volCtx.moveTo(x, pad.top); volCtx.lineTo(x, vh - pad.bottom); volCtx.stroke();
+          const label = fmtTime(t, tStep);
+          volCtx.fillText(label, x + 4, vh - 4);
+        });
+        volCtx.restore();
+
+        // Price segments
+        if (pricePoints.length >= 2) {
+          const up = '#27c782', down = '#ff5c5c';
+          priceCtx.lineWidth = 2;
+          const gapThresh = tStep * 3; // do not connect across big time gaps
+          for (let i = 1; i < pricePoints.length; i++) {
+            const p0 = pricePoints[i - 1];
+            const p1 = pricePoints[i];
+            const x0 = xToPx(p0.t, pw), y0 = yToPx(p0.price, ph);
+            const x1 = xToPx(p1.t, pw), y1 = yToPx(p1.price, ph);
+            // Skip drawing if gap too large (prevents long diagonal artifact)
+            if ((p1.t - p0.t) > gapThresh) continue;
+            priceCtx.strokeStyle = p1.price >= p0.price ? up : down;
+            priceCtx.beginPath(); priceCtx.moveTo(x0, y0); priceCtx.lineTo(x1, y1); priceCtx.stroke();
           }
         }
-      });
+
+        // Volume bars
+        if (pricePoints.length) {
+          const innerW = vw - pad.left - pad.right;
+          const barW = Math.max(1, Math.floor(innerW / Math.max(10, pricePoints.length) * 0.8));
+          for (let i = 0; i < pricePoints.length; i++) {
+            const p = pricePoints[i];
+            const prev = i > 0 ? pricePoints[i - 1] : p;
+            const x = xToPx(p.t, vw);
+            const y = volToPx(p.volume || 0, vh);
+            const base = volToPx(0, vh);
+            volCtx.fillStyle = (p.price >= prev.price) ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)';
+            volCtx.fillRect(Math.round(x - barW / 2), Math.round(y), barW, Math.round(base - y));
+          }
+        }
+
+        // Crosshair
+        if (view.cross.active) {
+          const cx = view.cross.x, cy = view.cross.y;
+          priceCtx.save(); priceCtx.strokeStyle = 'rgba(255,255,255,.35)'; priceCtx.lineWidth = 1;
+          priceCtx.beginPath(); priceCtx.moveTo(cx, pad.top); priceCtx.lineTo(cx, ph - pad.bottom); priceCtx.stroke();
+          priceCtx.beginPath(); priceCtx.moveTo(pad.left, cy); priceCtx.lineTo(pw - pad.right, cy); priceCtx.stroke();
+          priceCtx.restore();
+        }
+
+        // Zoom rectangle overlay
+        if (view.zooming && typeof view.zoomRectStartX === 'number' && typeof view.zoomRectEndX === 'number') {
+          const x0 = Math.min(view.zoomRectStartX, view.zoomRectEndX);
+          const x1 = Math.max(view.zoomRectStartX, view.zoomRectEndX);
+          priceCtx.save();
+          priceCtx.fillStyle = 'rgba(46,167,255,0.15)';
+          priceCtx.strokeStyle = 'rgba(46,167,255,0.6)';
+          priceCtx.lineWidth = 1;
+          priceCtx.fillRect(x0, pad.top, Math.max(0, x1 - x0), ph - pad.top - pad.bottom);
+          priceCtx.strokeRect(x0 + 0.5, pad.top + 0.5, Math.max(0, x1 - x0) - 1, ph - pad.top - pad.bottom - 1);
+          priceCtx.restore();
+        }
+      }
+
+      function clampViewToData() {
+        const arr = getData(); if (!arr.length) return;
+        const minT = arr[0].t, maxT = arr[arr.length - 1].t;
+        const span = Math.max(1, view.xMax - view.xMin);
+        if (view.xMin < minT) { view.xMax = Math.min(maxT, view.xMax + (minT - view.xMin)); view.xMin = minT; }
+        if (view.xMax > maxT) { view.xMin = Math.max(minT, view.xMin - (view.xMax - maxT)); view.xMax = maxT; }
+        const minSpan = 60 * 1000; // 1 minute
+        if ((view.xMax - view.xMin) < minSpan) { const mid = (view.xMin + view.xMax) / 2; view.xMin = mid - minSpan / 2; view.xMax = mid + minSpan / 2; }
+      }
+
+      function onWheel(e, canvas) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
+        const alpha = Math.min(1, Math.max(0, (x - pad.left) / inner));
+        const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
+        const span = Math.max(1, view.xMax - view.xMin);
+        const newSpan = span * factor;
+        const newMin = view.xMin + (span - newSpan) * alpha;
+        const newMax = newMin + newSpan;
+        view.xMin = newMin; view.xMax = newMax;
+        clampViewToData();
+        render();
+      }
+      function onMouseDown(e) {
+        const rect = priceCanvas.getBoundingClientRect();
+        if (e.ctrlKey) {
+          view.zooming = true; view.zoomRectStartX = e.clientX - rect.left; view.zoomRectEndX = view.zoomRectStartX; render();
+        } else {
+          view.panning = true; view.panStartPx = e.clientX; view.panRange = [view.xMin, view.xMax];
+        }
+      }
+      function onMouseMove(e, canvas) {
+        const rect = canvas.getBoundingClientRect();
+        if (view.zooming) {
+          view.zoomRectEndX = e.clientX - rect.left; render();
+        } else if (view.panning) {
+          const dx = e.clientX - view.panStartPx;
+          const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
+          const span = (view.panRange[1] - view.panRange[0]);
+          const dt = -dx / inner * span;
+          view.xMin = view.panRange[0] + dt; view.xMax = view.panRange[1] + dt;
+          clampViewToData(); render();
+        } else {
+          view.cross.active = true; view.cross.x = e.clientX - rect.left; view.cross.y = e.clientY - rect.top; render();
+        }
+      }
+      function onMouseUp() {
+        if (view.zooming) {
+          const rect = priceCanvas.getBoundingClientRect();
+          const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
+          const x0 = Math.min(view.zoomRectStartX, view.zoomRectEndX);
+          const x1 = Math.max(view.zoomRectStartX, view.zoomRectEndX);
+          if (x1 - x0 > 6) {
+            const alpha0 = Math.min(1, Math.max(0, (x0 - pad.left) / inner));
+            const alpha1 = Math.min(1, Math.max(0, (x1 - pad.left) / inner));
+            const span = Math.max(1, view.xMax - view.xMin);
+            const newMin = view.xMin + span * Math.min(alpha0, alpha1);
+            const newMax = view.xMin + span * Math.max(alpha0, alpha1);
+            view.xMin = newMin; view.xMax = newMax; clampViewToData();
+          }
+          view.zooming = false; render();
+        }
+        view.panning = false;
+      }
+      function onLeave() { view.panning = false; view.zooming = false; view.cross.active = false; render(); }
+      function fitToData() { const arr = getData(); if (arr.length >= 2) { view.xMin = arr[0].t; view.xMax = arr[arr.length - 1].t; render(); } }
+      function zoomInAt(xPx) {
+        const rect = priceCanvas.getBoundingClientRect();
+        const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
+        const alpha = Math.min(1, Math.max(0, (xPx - pad.left) / inner));
+        const span = Math.max(1, view.xMax - view.xMin);
+        const factor = 0.5; // zoom in 2x
+        const newSpan = span * factor;
+        const newMin = view.xMin + (span - newSpan) * alpha;
+        view.xMin = newMin; view.xMax = newMin + newSpan; clampViewToData(); render();
+      }
+
+      priceCanvas.addEventListener('wheel', (e) => onWheel(e, priceCanvas), { passive: false });
+      volumeCanvas.addEventListener('wheel', (e) => onWheel(e, volumeCanvas), { passive: false });
+      priceCanvas.addEventListener('mousedown', onMouseDown);
+      priceCanvas.addEventListener('mousemove', (e) => onMouseMove(e, priceCanvas));
+      priceCanvas.addEventListener('mouseup', onMouseUp);
+      priceCanvas.addEventListener('mouseleave', onLeave);
+  priceCanvas.addEventListener('dblclick', (e) => { if (e.shiftKey) fitToData(); else zoomInAt(e.clientX - priceCanvas.getBoundingClientRect().left); });
+      window.addEventListener('resize', () => render());
+
+      // Initial fit
+      const arr = getData(); if (arr.length >= 2) { view.xMin = arr[0].t; view.xMax = arr[arr.length - 1].t; }
+      render();
+      state._render = render;
     }
 
     function pushPricePoint(symbol, price, ts, volume) {
       if (!state.history[symbol]) state.history[symbol] = [];
-      state.history[symbol].push({ t: ts, price, volume });
+      const arr = state.history[symbol];
+      arr.push({ t: ts, price, volume });
+      const MAX_POINTS = 2000; if (arr.length > MAX_POINTS) arr.shift();
       if (state.openingPrice[symbol] === undefined) { state.openingPrice[symbol] = price; }
-      state.prices[symbol] = price;
-      state.volumes[symbol] = volume;
-
-      let ds = state.chartDatasets[symbol];
-      if (!ds) {
-        const color = colorForSymbol(symbol);
-        ds = {
-          label: symbol,
-          data: [],
-          borderColor: color,
-          backgroundColor: color + '44',
-          fill: false,
-          tension: 0.25,
-          pointRadius: 0,
-          borderWidth: 2,
-          parsing: false
-        };
-        state.chart.data.datasets.push(ds);
-        state.chartDatasets[symbol] = ds;
-        state.chart.update('none');
-      }
-      ds.data.push({ x: ts, y: price });
-      const MAX_POINTS = 600;
-      if (ds.data.length > MAX_POINTS) ds.data.shift();
-
-      const maxLen = Math.max(...Object.values(state.chartDatasets).map(d => d.data.length));
-      for (const other of Object.values(state.chartDatasets)) {
-        while (other.data.length < maxLen) {
-          const last = other.data.length > 0 ? other.data[other.data.length - 1].y : price;
-          other.data.push({ x: ts, y: last });
-        }
-      }
-      // Update volume bars for primary symbol only
-      if (symbol === state.primarySymbol && state.volumeChart) {
-        // Ensure a single dataset exists
-        if (state.volumeChart.data.datasets.length === 0) {
-          state.volumeChart.data.datasets.push({ label: 'Volume', data: [], borderSkipped: false, barPercentage: 1.0, categoryPercentage: 1.0 });
-        }
-        const vds = state.volumeChart.data.datasets[0];
-        const prev = state.history[symbol].length > 1 ? state.history[symbol][state.history[symbol].length - 2].price : price;
-        const isUp = price >= prev;
-        vds.data.push({ x: ts, y: volume, backgroundColor: isUp ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)' });
-        const MAX_BARS = 600;
-        if (vds.data.length > MAX_BARS) vds.data.shift();
-      }
-
-      state.chart.update('none');
-      state.volumeChart?.update('none');
+      state.prices[symbol] = price; state.volumes[symbol] = volume;
+      if (state._render && symbol === state.primarySymbol) state._render();
     }
 
     function setPrimary(sym) {
@@ -696,7 +880,11 @@
             pushPricePoint(sym, result.price, result.ts, result.volume);
           }
         }
-  // No banner; keep retrying silently
+        if (!gotAny && state.primarySymbol) {
+          // Fallback: refresh from chart endpoint
+          loadRangeForPrimary(state.activeRange);
+        }
+        // No banner; keep retrying silently
         setTimeout(poll, 5000); // 5 seconds
       }
       poll();
@@ -757,7 +945,7 @@
 
     // == UI BINDING ==
     function renderCatalogList(filter = '') {
-      stockListEl.innerHTML = '';
+  stockListEl.innerHTML = '<div class="listHeader" role="row">\n          <div>Ticker</div>\n          <div>Company</div>\n          <div>Last</div>\n          <div>Change</div>\n        </div>';
       const q = filter.trim().toLowerCase();
       CATALOG.forEach(item => {
         const match = !q || item.name.toLowerCase().includes(q) || item.symbol.toLowerCase().includes(q);
@@ -782,23 +970,7 @@
       });
     }
 
-    function ensureSymbolDataset(symbol) {
-      if (!state.chartDatasets[symbol] && state.chart) {
-        const color = colorForSymbol(symbol);
-        const ds = {
-          label: symbol,
-          data: [],
-          borderColor: color,
-          backgroundColor: color + '44',
-          fill: false,
-          tension: 0,
-          parsing: false
-        };
-        state.chart.data.datasets.push(ds);
-        state.chartDatasets[symbol] = ds;
-        state.chart.update('none');
-      }
-    }
+  function ensureSymbolDataset(symbol) { /* custom renderer does not need datasets */ }
 
     searchInput.addEventListener('input', (e) => {
       renderCatalogList(e.target.value);
@@ -885,23 +1057,19 @@
     }
 
     async function seedHistory(symbols) {
-      // Seed chart with intraday points for smoother initial UX
+    // Seed chart with intraday points for smoother initial UX
       const tasks = symbols.map(async (sym) => {
         try {
           const points = await fetchYahooChartHistory(sym, '1d', '1m');
           if (!points || points.length === 0) return;
-          // Set opening price to first point if not present
-          if (state.openingPrice[sym] == null && points[0]) state.openingPrice[sym] = points[0].price;
-          ensureSymbolDataset(sym);
-          const ds = state.chartDatasets[sym];
-          // Replace dataset data in bulk for performance
-          ds.data = points.map(p => ({ x: p.t, y: p.price }));
-          state.prices[sym] = points[points.length - 1].price;
-          state.volumes[sym] = points[points.length - 1].volume;
+      state.history[sym] = points.slice();
+      if (state.openingPrice[sym] == null && points[0]) state.openingPrice[sym] = points[0].price;
+      state.prices[sym] = points[points.length - 1].price;
+      state.volumes[sym] = points[points.length - 1].volume;
         } catch {}
       });
       await Promise.allSettled(tasks);
-      state.chart.update('none');
+    if (state._render) state._render();
       renderSummaryTiles();
     }
 
@@ -911,24 +1079,12 @@
       try {
         const points = await fetchYahooChartHistory(sym, range, interval);
         if (!points || points.length === 0) return;
-        ensureSymbolDataset(sym);
-        const ds = state.chartDatasets[sym];
-        ds.data = points.map(p => ({ x: p.t, y: p.price }));
+        state.history[sym] = points.slice();
         state.prices[sym] = points[points.length - 1].price;
         state.volumes[sym] = points[points.length - 1].volume;
-        // Rebuild volume bars
-        if (state.volumeChart) {
-          state.volumeChart.data.datasets = [{ label: 'Volume', data: [] }];
-          const vds = state.volumeChart.data.datasets[0];
-          for (let i = 0; i < points.length; i++) {
-            const pt = points[i];
-            const prev = i > 0 ? points[i-1].price : pt.price;
-            const isUp = pt.price >= prev;
-            vds.data.push({ x: pt.t, y: pt.volume ?? 0, backgroundColor: isUp ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)' });
-          }
-        }
-        state.chart.update('none');
-        state.volumeChart?.update('none');
+        if (!state._view) state._view = {};
+        state._view.xMin = points[0].t; state._view.xMax = points[points.length - 1].t;
+        if (state._render) state._render();
         renderSummaryTiles();
       } catch {}
     }
@@ -1001,14 +1157,19 @@
           Array.from(rangeGroup.querySelectorAll('button')).forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
           const key = btn.getAttribute('data-range');
-          if (key) loadRangeForPrimary(key);
+          if (key) { state.activeRange = key; loadRangeForPrimary(key); }
         });
       }
       // Seed if possible; non-blocking start of live feed
       const defaultRangeKey = '30m';
+      state.activeRange = defaultRangeKey;
       loadRangeForPrimary(defaultRangeKey).finally(() => {
         startYahooFinanceFeed();
       });
+      // Periodic refresh via chart endpoint as a fallback if quotes fail
+      setInterval(() => {
+        if (state.primarySymbol) loadRangeForPrimary(state.activeRange);
+      }, 30000);
     }
 
     window.addEventListener('load', () => {
