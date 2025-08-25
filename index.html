@@ -6,8 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Lightweight, modern UI font -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
-  <!-- Chart.js for high-quality interactive charts -->
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     :root {
       --bg: #0f1220;
@@ -149,9 +148,10 @@
       display: grid; grid-template-rows: auto 1fr;
       overflow: hidden;
     }
-    #chartCard canvas {
-      width: 100%; height: 100%;
-    }
+      #chartCard canvas {
+      width: 100% !important;
+       height: 420px !important;
+        }
 
     @media (max-width: 980px) {
       main.layout {
@@ -220,7 +220,6 @@
       { symbol: 'NAB.AX', name: 'National Australia Bank', color: '#118ab2' },
       { symbol: 'TLS.AX', name: 'Telstra Corp', color: '#84cc16' },
       { symbol: 'ANZ.AX', name: 'Australia and New Zealand Banking Group', color: '#f57c00' },
-      { symbol: 'CSL.AX', name: 'CSL Limited', color: '#00c2b4' }, // duplicate check: keep first; kept for demonstration
     ];
     const state = {
       selected: new Set(['BHP.AX','CSL.AX','CBA.AX']),
