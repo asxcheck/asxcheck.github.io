@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ASX Live Quotes — Real-time Stocks with Interactive Chart</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Lightweight, modern UI font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <!-- Chart.js for high-quality interactive charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1220;
+      --card: #14192b;
+      --card-2: #1c2133;
+      --muted: #98a2b3;
+      --text: #e8eaf6;
+      --accent: #4f9aff;
+      --grid: rgba(255,255,255,.08);
+      --green: #3bd17b;
+      --red: #ff5c5c;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto;
+      color: var(--text);
+      background: radial-gradient(circle at 20% -10%, rgba(79,154,255,.15) 0%, rgba(79,154,255,.0) 40%),
+                  radial-gradient(circle at 100% 0%, rgba(255,255,255,.06) 0%, rgba(255,255,255,.0) 40%),
+                  linear-gradient(#0b0e1a, #0b0e1a);
+    }
+
+    header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--grid);
+      position: sticky;
+      top: 0;
+      background: rgba(15,18,32,.92);
+      backdrop-filter: saturate(1.2) blur(6px);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand .logo {
+      width: 38px; height: 38px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #4f9aff 0%, #7c5cff 70%);
+      display: inline-block;
+    }
+
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: .2px;
+    }
+
+    main.layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 14px;
+      padding: 14px 16px 40px;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Panels */
+    .panel {
+      background: linear-gradient(180deg, rgba(20,25,50,.95), rgba(20,25,50,.92));
+      border: 1px solid var(--grid);
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 400px;
+      box-shadow: 0 10px 25px rgba(0,0,0,.25);
+    }
+
+    #watchPanel .panelHeader {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 6px 6px 6px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--grid);
+    }
+    #watchPanel h2 { font-size: 0.95rem; margin: 0; font-weight: 700; }
+    #watchPanel input[type="search"] {
+      width: 100%;
+      max-width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--grid);
+      background: #0a1130;
+      color: var(--text);
+    }
+
+    #stockList { display: grid; gap: 6px; max-height: calc(100% - 50px); overflow: auto; padding-right: 6px; }
+
+    .stockItem {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 8px;
+      background: linear-gradient(180deg, rgba(7,12,28,.6), rgba(7,12,28,.3));
+      border: 1px solid var(--grid);
+    }
+    .stockItem .left {
+      display: grid; grid-template-columns: auto 1fr;
+      gap: 8px; align-items: center;
+    }
+    .stockItem .checkbox {
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .stockName { font-weight: 600; font-size: 0.9rem; }
+    .stockSymbol { color: var(--muted); font-size: .85rem; }
+    .stockRowRight {
+      text-align: right;
+      min-width: 120px;
+    }
+    .price { font-weight: 700; }
+
+    .statCard {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
+      margin-top: 8px;
+    }
+
+    .statTile {
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--grid);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: grid; gap: 4px;
+    }
+    .statTile .label { font-size: .75rem; color: var(--muted); }
+    .statTile .value { font-size: 1.05rem; font-weight: 700; }
+
+    #chartCard {
+      min-height: 400px;
+      display: grid; grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+    #chartCard canvas {
+      width: 100%; height: 100%;
+    }
+
+    @media (max-width: 980px) {
+      main.layout {
+        grid-template-columns: 1fr;
+        padding: 8px 12px 40px;
+      }
+      #watchPanel { order: 2; }
+      #chartCard { order: 1; height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand" aria-label="Brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>ASX Live Quotes</h1>
+        <div style="font-size:.8rem; color:var(--muted)">
+          Real-time prices for selected ASX stocks with an AI-ready data structure.
+        </div>
+      </div>
+    </div>
+    <div aria-label="AI-ready export" style="text-align:right">
+      <button id="exportAiBtn" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">
+        Export AI-ready data
+      </button>
+    </div>
+  </header>
+
+  <main class="layout" aria-label="Main layout with stock selector and chart">
+    <!-- Watchlist / Stock selector -->
+    <aside id="watchPanel" class="panel" aria-label="Stock selection panel">
+      <div class="panelHeader">
+        <h2>Stocks to display</h2>
+        <input id="searchInput" type="search" placeholder="Search ASX stocks…" aria-label="Search stocks" />
+      </div>
+      <div id="stockList" aria-label="List of available stocks">
+        <!-- Dynamically generated rows -->
+      </div>
+      <div class="statCard" id="summaryPanel" aria-label="Basic summary stats for selected stocks">
+        <!-- Summary tiles for quick glance (daily change, volume, etc.) -->
+      </div>
+    </aside>
+
+    <!-- Interactive chart -->
+    <section id="chartCard" class="panel" aria-label="Interactive price chart for selected stocks">
+      <div style="padding:6px 6px 0 6px; display:flex; justify-content: space-between; align-items: center;">
+        <div style="font-weight:700; font-size:1rem;">Price Movement</div>
+        <div style="font-size:.85rem; color:var(--muted)">Live updates update every second</div>
+      </div>
+      <canvas id="priceChart" height="420" aria-label="Price chart canvas"></canvas>
+    </section>
+  </main>
+
+  <footer style="text-align:center; padding:20px; color:var(--muted);">
+    Disclaimer: Real-time data requires a live data feed. In environments without a connected feed, a mock provider is used for demonstration.
+  </footer>
+
+  <script>
+    // == CONFIG / DATA ==
+    const CATALOG = [
+      { symbol: 'BHP.AX', name: 'BHP Group Ltd', color: '#4f8cff' },
+      { symbol: 'CSL.AX', name: 'CSL Limited', color: '#00d084' },
+      { symbol: 'CBA.AX', name: 'Commonwealth Bank of Australia', color: '#f72585' },
+      { symbol: 'WBC.AX', name: 'Westpac Banking Corp', color: '#ffd166' },
+      { symbol: 'NAB.AX', name: 'National Australia Bank', color: '#118ab2' },
+      { symbol: 'TLS.AX', name: 'Telstra Corp', color: '#84cc16' },
+      { symbol: 'ANZ.AX', name: 'Australia and New Zealand Banking Group', color: '#f57c00' },
+      { symbol: 'CSL.AX', name: 'CSL Limited', color: '#00c2b4' }, // duplicate check: keep first; kept for demonstration
+    ];
+    const state = {
+      selected: new Set(['BHP.AX','CSL.AX','CBA.AX']),
+      prices: {},
+      volumes: {},
+      history: {},
+      openingPrice: {},
+      chart: null,
+      chartDatasets: {},
+      lastUpdate: 0,
+      colorsBySymbol: {},
+      isMock: true // toggle mock vs real feed
+    };
+    const COLOR_POOL = [
+      '#4f8cff', '#4caf50', '#ff7b54', '#f44336', '#ffd166',
+      '#8e44ad', '#2ecc71', '#1abc9c', '#e67e22', '#e74c3c', '#9b59b6'
+    ];
+
+    // == UI HELPERS ==
+    const stockListEl = document.getElementById('stockList');
+    const searchInput = document.getElementById('searchInput');
+    const priceChartCtx = document.getElementById('priceChart').getContext('2d');
+    const summaryPanel = document.getElementById('summaryPanel');
+    const exportAiBtn = document.getElementById('exportAiBtn');
+
+    function fmt(n) {
+      if (n === undefined || n === null || Number.isNaN(n)) return '-';
+      return Number(n).toFixed(2);
+    }
+    function deltaColor(delta) {
+      if (delta > 0) return 'var(--green)';
+      if (delta < 0) return 'var(--red)';
+      return 'var(--muted)';
+    }
+    function colorForSymbol(symbol) {
+      if (state.colorsBySymbol[symbol]) return state.colorsBySymbol[symbol];
+      const used = Object.values(state.colorsBySymbol);
+      const idx = used.length % COLOR_POOL.length;
+      const color = COLOR_POOL[idx];
+      state.colorsBySymbol[symbol] = color;
+      return color;
+    }
+
+    // == CHART (Chart.js) ==
+    function initChart() {
+      const datasets = [];
+      state.selected.forEach((sym) => {
+        const color = colorForSymbol(sym);
+        datasets.push({
+          label: sym,
+          data: [],
+          borderColor: color,
+          backgroundColor: color + '44',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          parsing: false
+        });
+      });
+      state.chartDatasets = {};
+      datasets.forEach(ds => {
+        state.chartDatasets[ds.label] = ds;
+      });
+      state.chart = new Chart(priceChartCtx, {
+        type: 'line',
+        data: { datasets: datasets, labels: [] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'nearest', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'top' },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (ctx) => {
+                  const s = ctx.dataset.label;
+                  const price = ctx.raw?.y ?? ctx.parsed?.y ?? '';
+                  return `${s}: ${fmt(price)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'time',
+              time: { displayFormats: { millisecond: 'HH:mm:ss', second: 'HH:mm:ss', minute: 'HH:mm', }},
+              grid: { color: 'var(--grid)' },
+              ticks: { color: 'var(--muted)' },
+            },
+            y: {
+              beginAtZero: false,
+              grid: { color: 'var(--grid)' },
+              title: { display: true, text: 'Price (AUD)' },
+              ticks: { color: 'var(--text)' }
+            }
+          }
+        }
+      });
+    }
+
+    function pushPricePoint(symbol, price, ts, volume) {
+      if (!state.history[symbol]) state.history[symbol] = [];
+      state.history[symbol].push({ t: ts, price, volume });
+      if (state.openingPrice[symbol] === undefined) { state.openingPrice[symbol] = price; }
+      state.prices[symbol] = price;
+      state.volumes[symbol] = volume;
+
+      let ds = state.chartDatasets[symbol];
+      if (!ds) {
+        const color = colorForSymbol(symbol);
+        ds = {
+          label: symbol,
+          data: [],
+          borderColor: color,
+          backgroundColor: color + '44',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          parsing: false
+        };
+        state.chart.data.datasets.push(ds);
+        state.chartDatasets[symbol] = ds;
+        state.chart.update('none');
+      }
+      ds.data.push({ x: ts, y: price });
+      const MAX_POINTS = 600;
+      if (ds.data.length > MAX_POINTS) ds.data.shift();
+
+      const maxLen = Math.max(...Object.values(state.chartDatasets).map(d => d.data.length));
+      for (const other of Object.values(state.chartDatasets)) {
+        while (other.data.length < maxLen) {
+          const last = other.data.length > 0 ? other.data[other.data.length - 1].y : price;
+          other.data.push({ x: ts, y: last });
+        }
+      }
+      state.chart.update('none');
+    }
+
+    function renderSummaryTiles() {
+      summaryPanel.innerHTML = '';
+      state.selected.forEach(sym => {
+        const price = state.prices[sym];
+        const open = state.openingPrice[sym] ?? price;
+        const delta = price != null && open != null ? price - open : 0;
+        const deltaPct = (open !== 0 && price != null) ? (delta / open) * 100 : 0;
+        const tile = document.createElement('div');
+        tile.className = 'statTile';
+        tile.style.borderLeft = `4px solid ${state.colorsBySymbol[sym] || '#fff'}`;
+        tile.innerHTML = `
+          <div class="label" style="font-size:.75rem; color:var(--muted)">${sym}</div>
+          <div class="value" aria-label="Current price">${fmt(price)}</div>
+          <div style="font-size:.75rem; color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">
+            ${delta >= 0 ? '▲' : delta < 0 ? '▼' : '•'} ${fmt(delta)} (${fmt(deltaPct)}%)
+          </div>
+          <div style="font-size:.7rem; color:var(--muted)">${state.volumes[sym] ?? 0} vol</div>
+        `;
+        summaryPanel.appendChild(tile);
+      });
+    }
+
+    // == REAL-TIME FEED (REAL OR MOCK) ==
+    class RealTimeProvider {
+      constructor(url, apiKey) {
+        this.url = url; this.apiKey = apiKey; this.ws = null;
+        this.callbacks = []; this.subscribed = new Set();
+        this.shouldReconnect = true; this.reconnectDelay = 1000;
+      }
+      connect() { /* ... truncated for brevity ... */ }
+      get selectedSymbols() { return Array.from(state.selected); }
+      subscribe(symbols) { /* ... truncated for brevity ... */ }
+      onMessage(cb) { this.callbacks.push(cb); }
+      reconnect() { if (!this.shouldReconnect) return; setTimeout(() => this.connect(), this.reconnectDelay); }
+      close() { this.shouldReconnect = false; if (this.ws) this.ws.close(); }
+    }
+
+    class MockRealTimeProvider {
+      constructor(symbols, onTick) { this.symbols = symbols; this.onTick = onTick; this.interval = null; }
+      start() {
+        this.symbols.forEach(sym => {
+          if (state.prices[sym] == null) {
+            state.prices[sym] = 50 + Math.random() * 50;
+            state.openingPrice[sym] = state.prices[sym];
+          }
+        });
+        this.interval = setInterval(() => {
+          const ts = Date.now();
+          this.symbols.forEach(sym => {
+            const last = state.prices[sym] ?? 50;
+            const delta = (Math.random() - 0.5) * 0.6;
+            const newPrice = Math.max(0.01, last + delta);
+            const volume = Math.floor(100 + Math.random() * 1000);
+            if (typeof this.onTick === 'function') {
+              this.onTick({ symbol: sym, price: newPrice, ts, volume });
+            }
+          });
+        }, 900); // about 1 second interval
+      }
+      stop() { if (this.interval) clearInterval(this.interval); }
+    }
+
+    // == UI BINDING ==
+    function renderCatalogList(filter = '') {
+      stockListEl.innerHTML = '';
+      const q = filter.trim().toLowerCase();
+      CATALOG.forEach(item => {
+        const match = !q || item.name.toLowerCase().includes(q) || item.symbol.toLowerCase().includes(q);
+        if (!match) return;
+        const symbol = item.symbol;
+        const isSelected = state.selected.has(symbol);
+        const row = document.createElement('div');
+        row.className = 'stockItem';
+        row.innerHTML = `
+          <div class="left">
+            <div class="checkbox" aria-label="Toggle ${symbol}">
+              <input type="checkbox" id="chk-${symbol}" ${isSelected ? 'checked' : ''} />
+            </div>
+            <div>
+              <div class="stockName" title="${item.name}">${item.name}</div>
+              <div class="stockSymbol" style="margin-top:2px">${symbol}</div>
+            </div>
+          </div>
+          <div class="stockRowRight" aria-label="Current price for ${symbol}">
+            <span id="latest-${symbol}" style="font-weight:700; font-feature-settings: 'tnum' 1">${state.prices[symbol] != null ? fmt(state.prices[symbol]) : '-'}</span>
+          </div>
+        `;
+        stockListEl.appendChild(row);
+         const chk = row.querySelector('input[type="checkbox"]');
+          chk.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            state.selected.add(symbol);
+            ensureSymbolDataset(symbol);
+            if (!state.chartDatasets[symbol]) {
+              const color = colorForSymbol(symbol);
+              const ds = {
+                label: symbol,
+                data: [],
+                borderColor: color,
+                backgroundColor: color + '44',
+                fill: false,
+                tension: 0.25,
+                parsing: false
+              };
+              state.chart.data.datasets.push(ds);
+              state.chartDatasets[symbol] = ds;
+            }
+            state.chart.update('none');
+          } else {
+            state.selected.delete(symbol);
+            const ds = state.chartDatasets[symbol];
+            if (ds) {
+              const idx = state.chart.data.datasets.indexOf(ds);
+              if (idx !== -1) state.chart.data.datasets.splice(idx, 1);
+              delete state.chartDatasets[symbol];
+              state.chart.update('none');
+            }
+          }
+          renderSummaryTiles();
+        });
+      });
+    }
+
+    function ensureSymbolDataset(symbol) {
+      if (!state.chartDatasets[symbol] && state.chart) {
+        const color = colorForSymbol(symbol);
+        const ds = {
+          label: symbol,
+          data: [],
+          borderColor: color,
+          backgroundColor: color + '44',
+          fill: false,
+          tension: 0.25,
+          parsing: false
+        };
+        state.chart.data.datasets.push(ds);
+        state.chartDatasets[symbol] = ds;
+        state.chart.update('none');
+      }
+    }
+
+    searchInput.addEventListener('input', (e) => {
+      renderCatalogList(e.target.value);
+    });
+
+    function updateLivePricesUI() {
+      renderCatalogList(searchInput.value);
+      renderSummaryTiles();
+    }
+
+    function buildAIInput() {
+      const current = {};
+      const history = {};
+      const opening = {};
+      const stats = {};
+      state.selected.forEach(sym => {
+        current[sym] = state.prices[sym] ?? null;
+        history[sym] = state.history[sym] ?? [];
+        opening[sym] = state.openingPrice[sym] ?? null;
+        const last = state.prices[sym] ?? opening[sym] ?? null;
+        const open = opening[sym] ?? last ?? 0;
+        const delta = (last ?? 0) - (open ?? 0);
+        const pct = (open ? delta / open * 100 : 0);
+        stats[sym] = { dailyChange: delta, dailyChangePct: pct };
+      });
+      // Volatility feature
+      const volatilityWindow = 20;
+      const volatility = {};
+      state.selected.forEach(sym => {
+        const hist = history[sym];
+        const len = hist.length;
+        const window = hist.slice(Math.max(0, len - volatilityWindow), len);
+        const prices = window.map(p => p.price);
+        if (prices.length >= 2) {
+          const mean = prices.reduce((a,b)=>a+b,0)/prices.length;
+          const varr = prices.reduce((acc,p)=> acc + (p-mean)*(p-mean), 0) / (prices.length-1);
+          volatility[sym] = Math.sqrt(varr);
+        } else {
+          volatility[sym] = 0;
+        }
+      });
+      return { current, history, opening, stats, features: { volatility } };
+    }
+
+    function downloadAIData() {
+      const aiInput = buildAIInput();
+      const blob = new Blob([JSON.stringify(aiInput, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai_input_live_asx.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    exportAiBtn.addEventListener('click', () => {
+      downloadAIData();
+    });
+
+    // == INITIALIZATION ==
+    function bootstrapChart() {
+      initChart();
+    }
+    renderCatalogList();
+
+    function startDemoFeed() {
+      bootstrapChart();
+      const mock = new MockRealTimeProvider(Array.from(state.selected), (msg) => {
+        pushPricePoint(msg.symbol, msg.price, msg.ts, msg.volume);
+        updateLivePricesUI();
+      });
+      mock.start();
+      renderSummaryTiles();
+    }
+    function init() {
+      bootstrapChart();
+      startDemoFeed();
+    }
+    window.addEventListener('load', init);
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { renderCatalogList(searchInput.value); }
+    });
+    // To use a real provider, swap out startDemoFeed as documented in the original code.
+  </script>
+</body>
+</html>
