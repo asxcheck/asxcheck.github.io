@@ -231,7 +231,7 @@
       chartDatasets: {},
       lastUpdate: 0,
       colorsBySymbol: {},
-      isMock: true // toggle mock vs real feed
+      isMock: false // now using Alpha Vantage
     };
     const COLOR_POOL = [
       '#4f8cff', '#4caf50', '#ff7b54', '#f44336', '#ffd166',
@@ -265,6 +265,11 @@
 
     // == CHART (Chart.js) ==
     function initChart() {
+      // Destroy previous chart if it exists
+      if (state.chart) {
+        state.chart.destroy();
+        state.chart = null;
+      }
       const datasets = [];
       state.selected.forEach((sym) => {
         const color = colorForSymbol(sym);
@@ -400,6 +405,112 @@
       close() { this.shouldReconnect = false; if (this.ws) this.ws.close(); }
     }
 
+
+    // == ALPHA VANTAGE REAL-TIME POLLING ==
+    // Yahoo Finance Unofficial API fetcher (batch) with CORS-friendly fallbacks
+    async function fetchYahooFinanceQuotes(symbols) {
+      if (!symbols || symbols.length === 0) return {};
+      const joined = symbols.map(encodeURIComponent).join(',');
+      const base = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
+      const attempts = [
+        base,
+        `https://cors.isomorphic-git.org/${base}`,
+        `https://corsproxy.io/?${encodeURIComponent(base)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(base)}`,
+        `https://r.jina.ai/http://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`
+      ];
+      const parseBody = async (resp, url) => {
+        const text = await resp.text();
+        try { return JSON.parse(text); } catch (_) {
+          // Some proxies return raw JSON text already; if not JSON, try to eval numeric fields after regex
+          try { return JSON.parse(text.replace(/^[^{\[]+/, '')); } catch { return null; }
+        }
+      };
+      for (const url of attempts) {
+        try {
+          const resp = await fetch(url, { cache: 'no-cache' });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await parseBody(resp, url);
+          if (!data) throw new Error('Invalid JSON');
+          let results = [];
+          if (data.quoteResponse && Array.isArray(data.quoteResponse.result)) {
+            results = data.quoteResponse.result;
+          } else if (Array.isArray(data)) {
+            results = data;
+          }
+          const out = {};
+          for (const r of results) {
+            const sym = r.symbol || r.shortName || r.longName;
+            if (!sym) continue;
+            if (r.regularMarketPrice != null) {
+              out[r.symbol] = {
+                price: r.regularMarketPrice,
+                volume: r.regularMarketVolume || 0,
+                ts: Date.now()
+              };
+            }
+          }
+          if (Object.keys(out).length) return out;
+        } catch (e) {
+          console.warn('Yahoo batch fetch attempt failed via', url, e);
+        }
+      }
+      return {};
+    }
+
+  function startYahooFinanceFeed() {
+      // Store last fetched prices
+      let lastPrices = {};
+      let lastVolumes = {};
+      let lastTimestamps = {};
+      let noDataCount = 0;
+      // Poll Yahoo Finance every 5 seconds (faster, but don't abuse)
+      async function poll() {
+        const syms = Array.from(state.selected);
+        let gotAny = false;
+        const batch = await fetchYahooFinanceQuotes(syms);
+        for (const sym of syms) {
+          const result = batch[sym];
+          if (result && !isNaN(result.price)) {
+            lastPrices[sym] = result.price;
+            lastVolumes[sym] = result.volume;
+            lastTimestamps[sym] = result.ts;
+            pushPricePoint(sym, result.price, result.ts, result.volume);
+            gotAny = true;
+          }
+        }
+        if (!gotAny) {
+          noDataCount++;
+          if (noDataCount >= 2) {
+            showNoDataMessage();
+            // fallback to mock data
+            startDemoFeed();
+            return;
+          }
+        } else {
+          noDataCount = 0;
+          hideNoDataMessage();
+        }
+        setTimeout(poll, 5000); // 5 seconds
+      }
+      poll();
+
+      // Update UI every second with the latest known prices
+      setInterval(() => {
+        const syms = Array.from(state.selected);
+        const now = Date.now();
+        syms.forEach(sym => {
+          if (lastPrices[sym] !== undefined) {
+            // Push the last known price with a new timestamp for smooth chart update
+            pushPricePoint(sym, lastPrices[sym], now, lastVolumes[sym]);
+          }
+        });
+        updateLivePricesUI();
+        renderSummaryTiles();
+      }, 1000);
+    }
+
+    // Restore MockRealTimeProvider for fallback demo mode
     class MockRealTimeProvider {
       constructor(symbols, onTick) { this.symbols = symbols; this.onTick = onTick; this.interval = null; }
       start() {
@@ -420,9 +531,45 @@
               this.onTick({ symbol: sym, price: newPrice, ts, volume });
             }
           });
-        }, 900); // about 1 second interval
+        }, 900);
       }
       stop() { if (this.interval) clearInterval(this.interval); }
+    }
+
+    // Show/hide a message if no data is available
+    function showNoDataMessage() {
+      let msg = document.getElementById('noDataMsg');
+      if (!msg) {
+        msg = document.createElement('div');
+        msg.id = 'noDataMsg';
+        msg.style.position = 'fixed';
+        msg.style.top = '60px';
+        msg.style.left = '50%';
+        msg.style.transform = 'translateX(-50%)';
+        msg.style.background = '#ff5c5c';
+        msg.style.color = '#fff';
+        msg.style.padding = '12px 24px';
+        msg.style.borderRadius = '8px';
+        msg.style.zIndex = '1000';
+        msg.style.fontWeight = 'bold';
+        msg.innerText = 'No data from Alpha Vantage. Falling back to demo mode.';
+        document.body.appendChild(msg);
+      }
+    }
+    function hideNoDataMessage() {
+      const msg = document.getElementById('noDataMsg');
+      if (msg) msg.remove();
+    }
+
+    // Fallback: Demo feed (mock data)
+    function startDemoFeed() {
+      bootstrapChart();
+      const mock = new MockRealTimeProvider(Array.from(state.selected), (msg) => {
+        pushPricePoint(msg.symbol, msg.price, msg.ts, msg.volume);
+        updateLivePricesUI();
+      });
+      mock.start();
+      renderSummaryTiles();
     }
 
     // == UI BINDING ==
@@ -569,18 +716,9 @@
     }
     renderCatalogList();
 
-    function startDemoFeed() {
-      bootstrapChart();
-      const mock = new MockRealTimeProvider(Array.from(state.selected), (msg) => {
-        pushPricePoint(msg.symbol, msg.price, msg.ts, msg.volume);
-        updateLivePricesUI();
-      });
-      mock.start();
-      renderSummaryTiles();
-    }
     function init() {
       bootstrapChart();
-      startDemoFeed();
+      startYahooFinanceFeed();
     }
     window.addEventListener('load', init);
     searchInput.addEventListener('keydown', (e) => {
