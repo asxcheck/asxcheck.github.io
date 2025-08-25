@@ -207,6 +207,9 @@
       <button id="exportAiBtn" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">
         Export AI-ready data
       </button>
+      <button id="dataSourceBtn" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer; margin-left:8px">
+        Data source
+      </button>
     </div>
   </header>
 
@@ -256,8 +259,10 @@
     // small server/worker you control that forwards to Yahoo and adds
     // Access-Control-Allow-Origin: *. Leave empty to skip Yahoo on GH Pages.
     const CONFIG = {
-      YAHOO_PROXY: '', // e.g. 'https://your-worker.example.workers.dev/quote'
-      // In the absence of a proxy, the app will fall back to demo data.
+      // Set to a proxy base that mirrors Yahoo paths, e.g.
+      //   https://your-worker.example.workers.dev
+      // The app will call: `${YAHOO_PROXY}/v7/finance/quote?...` and `/v8/finance/chart/...`
+      YAHOO_PROXY: '',
     };
 
     const CATALOG = [
@@ -291,7 +296,8 @@
     const searchInput = document.getElementById('searchInput');
     const priceChartCtx = document.getElementById('priceChart').getContext('2d');
     const summaryPanel = document.getElementById('summaryPanel');
-    const exportAiBtn = document.getElementById('exportAiBtn');
+  const exportAiBtn = document.getElementById('exportAiBtn');
+  const dataSourceBtn = document.getElementById('dataSourceBtn');
 
     function fmt(n) {
       if (n === undefined || n === null || Number.isNaN(n)) return '-';
@@ -439,7 +445,7 @@
     }
 
     // == REAL-TIME FEED (REAL OR MOCK) ==
-    class RealTimeProvider {
+  class RealTimeProvider {
       constructor(url, apiKey) {
         this.url = url; this.apiKey = apiKey; this.ws = null;
         this.callbacks = []; this.subscribed = new Set();
@@ -462,7 +468,7 @@
       // Prefer proxy when configured (recommended for GH Pages/static hosting)
       if (CONFIG.YAHOO_PROXY) {
         try {
-          const proxiedUrl = `${CONFIG.YAHOO_PROXY}?symbols=${joined}`;
+          const proxiedUrl = `${CONFIG.YAHOO_PROXY}/v7/finance/quote?symbols=${joined}`;
           const resp = await fetch(proxiedUrl, { cache: 'no-cache' });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
@@ -514,6 +520,40 @@
       }
     }
 
+    // Fetch intraday history for seeding the chart (range: 1d, interval: 1m)
+    async function fetchYahooChartHistory(symbol, range = '1d', interval = '1m') {
+      const onGithubPages = /\.github\.io$/i.test(location.hostname);
+      let url = '';
+      if (CONFIG.YAHOO_PROXY) {
+        url = `${CONFIG.YAHOO_PROXY}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
+      } else if (!onGithubPages) {
+        url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
+      } else {
+        return null;
+      }
+      try {
+        const resp = await fetch(url, { cache: 'no-cache' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const res = data?.chart?.result?.[0];
+        if (!res) return null;
+        const ts = res.timestamp || [];
+        const quote = res.indicators?.quote?.[0] || {};
+        const closes = quote.close || [];
+        const volumes = quote.volume || [];
+        const points = [];
+        for (let i = 0; i < ts.length; i++) {
+          const p = closes[i];
+          if (p == null || Number.isNaN(p)) continue;
+          points.push({ t: ts[i] * 1000, price: p, volume: volumes?.[i] ?? 0 });
+        }
+        return points;
+      } catch (e) {
+        console.warn('Yahoo chart history fetch error:', e);
+        return null;
+      }
+    }
+
   function startYahooFinanceFeed() {
       // Store last fetched prices
       let lastPrices = {};
@@ -558,7 +598,7 @@
       }
       poll();
 
-      // Update UI every second with the latest known prices
+  // Update UI every second with the latest known prices
       setInterval(() => {
         const syms = Array.from(state.selected);
         const now = Date.now();
@@ -615,7 +655,7 @@
         msg.style.borderRadius = '8px';
         msg.style.zIndex = '1000';
         msg.style.fontWeight = 'bold';
-    msg.innerText = 'Live data unavailable (likely CORS). Falling back to demo mode.';
+        msg.innerText = 'Live data unavailable (CORS). Add a Yahoo proxy in Data source settings to enable live prices.';
         document.body.appendChild(msg);
       }
     }
@@ -774,7 +814,7 @@
     });
 
     // == INITIALIZATION ==
-    function bootstrapChart() { initChart(); }
+  function bootstrapChart() { initChart(); }
     renderCatalogList();
 
     // Simple client-side password gate (note: not secure; use server auth for real protection)
@@ -796,12 +836,90 @@
       }
     }
 
-    function init() {
+    async function seedHistory(symbols) {
+      // Seed chart with intraday points for smoother initial UX
+      const tasks = symbols.map(async (sym) => {
+        try {
+          const points = await fetchYahooChartHistory(sym, '1d', '1m');
+          if (!points || points.length === 0) return;
+          // Set opening price to first point if not present
+          if (state.openingPrice[sym] == null && points[0]) state.openingPrice[sym] = points[0].price;
+          ensureSymbolDataset(sym);
+          const ds = state.chartDatasets[sym];
+          // Replace dataset data in bulk for performance
+          ds.data = points.map(p => ({ x: p.t, y: p.price }));
+          state.prices[sym] = points[points.length - 1].price;
+          state.volumes[sym] = points[points.length - 1].volume;
+        } catch {}
+      });
+      await Promise.allSettled(tasks);
+      state.chart.update('none');
+      renderSummaryTiles();
+    }
+
+    function loadSavedConfig() {
+      try {
+        const saved = localStorage.getItem('asx_yahoo_proxy');
+        if (saved) CONFIG.YAHOO_PROXY = saved;
+      } catch {}
+    }
+
+    function initDataSourceModal() {
+      const modal = document.createElement('div');
+      modal.id = 'dataSourceModal';
+      modal.style.position = 'fixed';
+      modal.style.inset = '0';
+      modal.style.display = 'none';
+      modal.style.alignItems = 'center';
+      modal.style.justifyContent = 'center';
+      modal.style.background = 'rgba(10,12,24,0.8)';
+      modal.style.zIndex = '10001';
+      modal.innerHTML = `
+        <div style="width:520px; max-width:90vw; background: var(--card); border:1px solid var(--grid); border-radius:12px; padding:16px;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:8px;">Data source settings</div>
+          <div style="font-size:.85rem; color:var(--muted); margin-bottom:8px;">
+            Paste your Yahoo proxy base URL. Example: https://your-worker.example.workers.dev
+            This should mirror Yahoo paths, allowing requests to /v7/finance/quote and /v8/finance/chart.
+          </div>
+          <input id="proxyInput" type="text" placeholder="https://your-worker.example.workers.dev" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--grid); background:#0a1130; color:var(--text);" />
+          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+            <button id="proxyCancel" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">Cancel</button>
+            <button id="proxySave" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#143; color:#c8facc; cursor:pointer; font-weight:700">Save</button>
+          </div>
+          <div style="margin-top:10px; font-size:.8rem; color:var(--muted);">
+            Tip: Use a Cloudflare Worker to proxy to https://query1.finance.yahoo.com and add CORS headers. After saving, the app will fetch real prices and seed history.
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const open = () => {
+        const input = modal.querySelector('#proxyInput');
+        input.value = CONFIG.YAHOO_PROXY || '';
+        modal.style.display = 'flex';
+        input.focus();
+      };
+      const close = () => { modal.style.display = 'none'; };
+      dataSourceBtn?.addEventListener('click', open);
+      modal.querySelector('#proxyCancel')?.addEventListener('click', close);
+      modal.querySelector('#proxySave')?.addEventListener('click', () => {
+        const val = modal.querySelector('#proxyInput').value.trim().replace(/\/$/, '');
+        CONFIG.YAHOO_PROXY = val;
+        try { localStorage.setItem('asx_yahoo_proxy', val); } catch {}
+        close();
+      });
+    }
+
+    async function init() {
+      loadSavedConfig();
       bootstrapChart();
-      startYahooFinanceFeed();
+      // Seed if possible; non-blocking start of live feed
+      seedHistory(Array.from(state.selected)).finally(() => {
+        startYahooFinanceFeed();
+      });
     }
 
     window.addEventListener('load', () => {
+  initDataSourceModal();
       try { if (sessionStorage.getItem('asx_authed') === '1') { authed = true; document.getElementById('authOverlay').style.display = 'none'; init(); return; } } catch {}
       const btn = document.getElementById('authSubmit');
       const inp = document.getElementById('authPassword');
