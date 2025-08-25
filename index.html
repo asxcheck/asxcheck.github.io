@@ -161,6 +161,35 @@
       #watchPanel { order: 2; }
       #chartCard { order: 1; height: 420px; }
     }
+
+    /* Auth overlay */
+    #authOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 12, 24, 0.9);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+    #authCard {
+      background: var(--card);
+      border: 1px solid var(--grid);
+      border-radius: 12px;
+      padding: 18px;
+      width: 320px;
+      box-shadow: 0 10px 25px rgba(0,0,0,.35);
+    }
+    #authCard h3 { margin: 0 0 10px 0; }
+    #authCard input[type="password"] {
+      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--grid);
+      background: #0a1130; color: var(--text); margin: 8px 0 12px 0;
+    }
+    #authCard button {
+      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--grid);
+      background: #0a0f2a; color: var(--text); cursor: pointer; font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -205,6 +234,16 @@
       <canvas id="priceChart" height="420" aria-label="Price chart canvas"></canvas>
     </section>
   </main>
+  <!-- Simple password gate (client-side only) -->
+  <div id="authOverlay" aria-modal="true" role="dialog">
+    <div id="authCard">
+      <h3>Enter Password</h3>
+      <div style="font-size:.85rem; color:var(--muted)">This site is restricted. Please enter the access password.</div>
+      <input id="authPassword" type="password" placeholder="Password" aria-label="Password" />
+      <div id="authError" style="color: var(--red); display:none; font-size:.85rem; margin-bottom:8px">Incorrect password. Try again.</div>
+      <button id="authSubmit">Unlock</button>
+    </div>
+  </div>
 
   <footer style="text-align:center; padding:20px; color:var(--muted);">
     Disclaimer: Real-time data requires a live data feed. In environments without a connected feed, a mock provider is used for demonstration.
@@ -212,6 +251,15 @@
 
   <script>
     // == CONFIG / DATA ==
+    // CORS/Provider configuration. For static deployments (e.g., GitHub Pages),
+    // direct calls to Yahoo will be blocked by CORS. Set YAHOO_PROXY to a
+    // small server/worker you control that forwards to Yahoo and adds
+    // Access-Control-Allow-Origin: *. Leave empty to skip Yahoo on GH Pages.
+    const CONFIG = {
+      YAHOO_PROXY: '', // e.g. 'https://your-worker.example.workers.dev/quote'
+      // In the absence of a proxy, the app will fall back to demo data.
+    };
+
     const CATALOG = [
       { symbol: 'BHP.AX', name: 'BHP Group Ltd', color: '#4f8cff' },
       { symbol: 'CSL.AX', name: 'CSL Limited', color: '#00d084' },
@@ -231,7 +279,7 @@
       chartDatasets: {},
       lastUpdate: 0,
       colorsBySymbol: {},
-      isMock: false // now using Alpha Vantage
+  isMock: false // toggled when demo feed is used
     };
     const COLOR_POOL = [
       '#4f8cff', '#4caf50', '#ff7b54', '#f44336', '#ffd166',
@@ -406,43 +454,23 @@
     }
 
 
-    // == ALPHA VANTAGE REAL-TIME POLLING ==
-    // Yahoo Finance Unofficial API fetcher (batch) with CORS-friendly fallbacks
+    // == DATA FETCH (Yahoo Finance)
     async function fetchYahooFinanceQuotes(symbols) {
       if (!symbols || symbols.length === 0) return {};
       const joined = symbols.map(encodeURIComponent).join(',');
-      const base = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
-      const attempts = [
-        base,
-        `https://cors.isomorphic-git.org/${base}`,
-        `https://corsproxy.io/?${encodeURIComponent(base)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(base)}`,
-        `https://r.jina.ai/http://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`
-      ];
-      const parseBody = async (resp, url) => {
-        const text = await resp.text();
-        try { return JSON.parse(text); } catch (_) {
-          // Some proxies return raw JSON text already; if not JSON, try to eval numeric fields after regex
-          try { return JSON.parse(text.replace(/^[^{\[]+/, '')); } catch { return null; }
-        }
-      };
-      for (const url of attempts) {
+      const onGithubPages = /\.github\.io$/i.test(location.hostname);
+      // Prefer proxy when configured (recommended for GH Pages/static hosting)
+      if (CONFIG.YAHOO_PROXY) {
         try {
-          const resp = await fetch(url, { cache: 'no-cache' });
+          const proxiedUrl = `${CONFIG.YAHOO_PROXY}?symbols=${joined}`;
+          const resp = await fetch(proxiedUrl, { cache: 'no-cache' });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const data = await parseBody(resp, url);
-          if (!data) throw new Error('Invalid JSON');
-          let results = [];
-          if (data.quoteResponse && Array.isArray(data.quoteResponse.result)) {
-            results = data.quoteResponse.result;
-          } else if (Array.isArray(data)) {
-            results = data;
-          }
+          const data = await resp.json();
+          // Expecting the worker to return Yahoo's JSON shape
+          const results = data.quoteResponse?.result || [];
           const out = {};
           for (const r of results) {
-            const sym = r.symbol || r.shortName || r.longName;
-            if (!sym) continue;
-            if (r.regularMarketPrice != null) {
+            if (r && r.symbol && r.regularMarketPrice != null) {
               out[r.symbol] = {
                 price: r.regularMarketPrice,
                 volume: r.regularMarketVolume || 0,
@@ -450,12 +478,40 @@
               };
             }
           }
-          if (Object.keys(out).length) return out;
+          return out;
         } catch (e) {
-          console.warn('Yahoo batch fetch attempt failed via', url, e);
+          console.warn('Yahoo (proxied) fetch error:', e);
+          return {};
         }
       }
-      return {};
+
+      // If no proxy and running on GitHub Pages, skip direct Yahoo to avoid noisy CORS errors
+      if (onGithubPages) {
+        console.info('Skipping direct Yahoo fetch on GitHub Pages (CORS). Configure CONFIG.YAHOO_PROXY to enable.');
+        return {};
+      }
+
+      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
+      try {
+        const resp = await fetch(url, { cache: 'no-cache' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const results = data.quoteResponse?.result || [];
+        const out = {};
+        for (const r of results) {
+          if (r && r.symbol && r.regularMarketPrice != null) {
+            out[r.symbol] = {
+              price: r.regularMarketPrice,
+              volume: r.regularMarketVolume || 0,
+              ts: Date.now()
+            };
+          }
+        }
+        return out;
+      } catch (e) {
+        console.warn('Yahoo (direct) fetch error:', e);
+        return {};
+      }
     }
 
   function startYahooFinanceFeed() {
@@ -464,6 +520,13 @@
       let lastVolumes = {};
       let lastTimestamps = {};
       let noDataCount = 0;
+      const onGithubPages = /\.github\.io$/i.test(location.hostname);
+      // If we are on GH Pages and no proxy configured, go straight to demo mode
+      if (onGithubPages && !CONFIG.YAHOO_PROXY) {
+        showNoDataMessage();
+        startDemoFeed();
+        return;
+      }
       // Poll Yahoo Finance every 5 seconds (faster, but don't abuse)
       async function poll() {
         const syms = Array.from(state.selected);
@@ -537,7 +600,7 @@
     }
 
     // Show/hide a message if no data is available
-    function showNoDataMessage() {
+  function showNoDataMessage() {
       let msg = document.getElementById('noDataMsg');
       if (!msg) {
         msg = document.createElement('div');
@@ -552,7 +615,7 @@
         msg.style.borderRadius = '8px';
         msg.style.zIndex = '1000';
         msg.style.fontWeight = 'bold';
-        msg.innerText = 'No data from Alpha Vantage. Falling back to demo mode.';
+    msg.innerText = 'Live data unavailable (likely CORS). Falling back to demo mode.';
         document.body.appendChild(msg);
       }
     }
@@ -711,16 +774,40 @@
     });
 
     // == INITIALIZATION ==
-    function bootstrapChart() {
-      initChart();
-    }
+    function bootstrapChart() { initChart(); }
     renderCatalogList();
+
+    // Simple client-side password gate (note: not secure; use server auth for real protection)
+    const PASSWORD = 'acer'; // change this to your desired password
+    let authed = false;
+    async function unlockIfValid() {
+      const input = document.getElementById('authPassword');
+      const err = document.getElementById('authError');
+      const val = (input?.value || '').trim();
+      if (!val) { err.style.display = 'block'; return; }
+      if (val === PASSWORD) {
+        authed = true;
+        document.getElementById('authOverlay').style.display = 'none';
+        // optionally remember session
+        try { sessionStorage.setItem('asx_authed', '1'); } catch {}
+        init();
+      } else {
+        err.style.display = 'block';
+      }
+    }
 
     function init() {
       bootstrapChart();
       startYahooFinanceFeed();
     }
-    window.addEventListener('load', init);
+
+    window.addEventListener('load', () => {
+      try { if (sessionStorage.getItem('asx_authed') === '1') { authed = true; document.getElementById('authOverlay').style.display = 'none'; init(); return; } } catch {}
+      const btn = document.getElementById('authSubmit');
+      const inp = document.getElementById('authPassword');
+      btn?.addEventListener('click', unlockIfValid);
+      inp?.addEventListener('keydown', (e) => { if (e.key === 'Enter') unlockIfValid(); });
+    });
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { renderCatalogList(searchInput.value); }
     });
