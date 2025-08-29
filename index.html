@@ -97,6 +97,7 @@
 			@media (max-width: 700px) { .settings-grid { grid-template-columns: 1fr; } }
 			.field { display:flex; flex-direction: column; gap: 6px; }
 			.field label { font-size: 12px; color: var(--muted); }
+			.field .row { gap: 8px; }
 			.helper { font-size: 12px; color: var(--muted); }
 			.tag { font-size: 11px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--muted); }
 		</style>
@@ -209,13 +210,43 @@
 					</div>
 					<div class="field">
 						<label for="llmModel">Model</label>
-						<input id="llmModel" class="input" placeholder="gpt-4o-mini" />
+								<input id="llmModel" class="input" placeholder="gpt-5" />
 					</div>
 					<div class="field" style="grid-column: 1 / -1;">
 						<label for="llmKey">API Key</label>
 						<input id="llmKey" class="input" type="password" placeholder="sk-..." />
 					</div>
 				</div>
+						<div class="row" style="gap:8px; margin-top:6px;">
+							<span class="helper">Quick presets:</span>
+							<button id="presetOpenAIGPT5" class="btn small">OpenAI GPT‑5</button>
+							<button id="presetOpenAI4oMini" class="btn small ghost">OpenAI GPT‑4o‑mini</button>
+						</div>
+						<div class="row" style="align-items:center; margin: 12px 0 6px;">
+							<h3 style="margin:0; font-size:14px;">Data Proxy</h3>
+							<span class="spacer"></span>
+							<span class="helper">Use this to avoid CORS and rate limits</span>
+						</div>
+						<div class="settings-grid">
+							<div class="field">
+								<label for="proxyBase">Proxy Base URL</label>
+								<input id="proxyBase" class="input" placeholder="https://asx.asxcheck.workers.dev" />
+							</div>
+							<div class="field">
+								<label for="proxyMode">Proxy Mode</label>
+								<select id="proxyMode" class="input">
+									<option value="path">Path passthrough (/v7/…)</option>
+									<option value="param">Query param (?url=…)</option>
+								</select>
+							</div>
+							<div class="field" style="grid-column: 1 / -1;">
+								<label>Always use proxy</label>
+								<div class="row">
+									<input id="proxyAlways" type="checkbox" />
+									<span class="helper">If unchecked, the app will try direct requests and fall back to the proxy on failure.</span>
+								</div>
+							</div>
+						</div>
 				<div class="row" style="margin-top:10px;">
 					<button id="saveSettings" class="btn primary">Save</button>
 					<button id="clearSettings" class="btn ghost">Clear</button>
@@ -262,24 +293,143 @@
 
 			function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 			function load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
+			const DEFAULT_LLM = { base: 'https://api.openai.com/v1', model: 'gpt-5', key: '' };
+			function getLlmCfg() { const raw = load('llmCfg', {}); return { ...DEFAULT_LLM, ...raw }; }
 
 			// --- Data fetchers (Yahoo Finance public endpoints) ---
-			async function fetchQuotes(symbols) {
-				if (!symbols?.length) return [];
-				const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}`;
-				const res = await fetch(url, { cache: 'no-store' });
-				if (!res.ok) throw new Error('Quote fetch failed');
-				const json = await res.json();
-				return json?.quoteResponse?.result ?? [];
-			}
+					// Proxy settings
+					const DEFAULT_PROXY = { base: 'https://asx.asxcheck.workers.dev', mode: 'path', always: true };
+					function getProxyCfg() { return load('proxyCfg', DEFAULT_PROXY); }
+					function wrapProxy(url, cfg) {
+						if (!cfg?.base) return url;
+						const base = cfg.base.replace(/\/$/, '');
+						if (cfg.mode === 'param') {
+							return `${base}/?url=${encodeURIComponent(url)}`;
+						}
+						// path passthrough: strip origin, keep path+query
+						try {
+							const u = new URL(url);
+							return base + u.pathname + (u.search || '');
+						} catch { return url; }
+					}
+							async function tryFetchJSON(url, opts = {}, { allowProxyFallback = true } = {}) {
+						const cfg = getProxyCfg();
+						const doFetch = (u) => fetch(u, { cache: 'no-store', ...opts });
+						try {
+							if (cfg?.always && cfg?.base) {
+								const res = await doFetch(wrapProxy(url, cfg));
+								if (!res.ok) throw new Error(await res.text());
+								return await res.json();
+							}
+							const res = await doFetch(url);
+							if (!res.ok) throw new Error(await res.text());
+							return await res.json();
+						} catch (err) {
+							if (allowProxyFallback && cfg?.base && !cfg?.always) {
+								try {
+									const res2 = await doFetch(wrapProxy(url, cfg));
+									if (!res2.ok) throw new Error(await res2.text());
+									return await res2.json();
+								} catch (err2) {
+									throw err2;
+								}
+							}
+							throw err;
+						}
+					}
 
-			async function fetchSpark(symbols, range = '5d', interval = '1d') {
-				if (!symbols?.length) return {};
-				const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
-				const res = await fetch(url, { cache: 'no-store' });
-				if (!res.ok) throw new Error('Spark fetch failed');
-				return await res.json();
-			}
+							function parseMaybeJSON(text) { try { return JSON.parse(text); } catch { return null; } }
+							function isYahooUnauthorizedError(err) {
+								if (!err) return false;
+								const msg = (err && err.message) ? String(err.message) : String(err);
+								if (msg.includes('Unauthorized')) return true;
+								const json = parseMaybeJSON(msg);
+								return !!(json && json.finance && json.finance.error && /Unauthorized/i.test(json.finance.error.code || ''));
+							}
+
+							async function fetchQuotes(symbols) {
+								if (!symbols?.length) return [];
+								const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}`;
+								try {
+									const json = await tryFetchJSON(url);
+									return json?.quoteResponse?.result ?? [];
+								} catch (e) {
+									if (isYahooUnauthorizedError(e)) {
+										// Fallback to quoteSummary per symbol
+										return await fetchQuotesViaSummary(symbols);
+									}
+									throw e;
+								}
+							}
+
+							async function fetchQuotesViaSummary(symbols) {
+								// Limit concurrency to reduce rate issues
+								const out = [];
+								const chunk = 5;
+								for (let i = 0; i < symbols.length; i += chunk) {
+									const batch = symbols.slice(i, i + chunk);
+									const results = await Promise.all(batch.map(s => fetchQuoteSummary(s).catch(() => null)));
+									for (const r of results) if (r) out.push(r);
+								}
+								return out;
+							}
+
+							async function fetchQuoteSummary(symbol) {
+								const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=price,summaryDetail,defaultKeyStatistics`;
+								const json = await tryFetchJSON(url);
+								const res = json?.quoteSummary?.result?.[0];
+								if (!res) throw new Error('No summary');
+								const price = res.price || {};
+								const summ = res.summaryDetail || {};
+								const stats = res.defaultKeyStatistics || {};
+								function raw(x, k) { return x && x[k] && typeof x[k].raw !== 'undefined' ? x[k].raw : x && x[k]; }
+								return {
+									symbol: price.symbol || symbol,
+									shortName: price.shortName || price.longName || symbol,
+									longName: price.longName || price.shortName || symbol,
+									regularMarketPrice: raw(price, 'regularMarketPrice'),
+									regularMarketChangePercent: raw(price, 'regularMarketChangePercent'),
+									marketState: price.marketState,
+									marketCap: raw(price, 'marketCap') ?? raw(summ, 'marketCap'),
+									trailingPE: raw(summ, 'trailingPE') ?? raw(stats, 'trailingPE'),
+									forwardPE: raw(summ, 'forwardPE') ?? raw(stats, 'forwardPE'),
+									regularMarketVolume: raw(price, 'regularMarketVolume'),
+									regularMarketDayLow: raw(price, 'regularMarketDayLow') ?? raw(summ, 'dayLow'),
+									regularMarketDayHigh: raw(price, 'regularMarketDayHigh') ?? raw(summ, 'dayHigh'),
+								};
+							}
+
+							async function fetchSpark(symbols, range = '5d', interval = '1d') {
+								if (!symbols?.length) return {};
+								const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
+								try {
+									return await tryFetchJSON(url);
+								} catch (e) {
+									if (isYahooUnauthorizedError(e)) {
+										return await fetchSparkViaChart(symbols, range, interval);
+									}
+									throw e;
+								}
+							}
+
+							async function fetchSparkViaChart(symbols, range = '5d', interval = '1d') {
+								const out = {};
+								const chunk = 5;
+								for (let i = 0; i < symbols.length; i += chunk) {
+									const batch = symbols.slice(i, i + chunk);
+									const arr = await Promise.all(batch.map(async (s) => {
+										try {
+											const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?range=${range}&interval=${interval}`;
+											const json = await tryFetchJSON(url);
+											const res = json?.chart?.result?.[0];
+											const close = res?.indicators?.quote?.[0]?.close || [];
+											return [s, { close }];
+										} catch { return [s, { close: [] }]; }
+									}));
+									for (const [sym, data] of arr) out[sym] = data;
+								}
+								return out;
+							}
 
 			// --- Rule-based AI-style insight ---
 			function rulesInsight(quote, sparkSeries) {
@@ -340,8 +490,8 @@
 			}
 
 			// --- Optional LLM integration ---
-			async function llmInsightIfConfigured(quote, sparkSeries) {
-				const cfg = load('llmCfg', {});
+					async function llmInsightIfConfigured(quote, sparkSeries) {
+						const cfg = getLlmCfg();
 				if (!cfg?.key || !cfg?.base || !cfg?.model) return null;
 				const payload = {
 					model: cfg.model,
@@ -480,6 +630,10 @@
 					} else {
 						const r = rulesInsight(q, series);
 						qs('#insightText').textContent = r.text;
+								const cfg = getLlmCfg();
+								if (cfg?.key && cfg?.base && cfg?.model) {
+									qs('#insightMeta').textContent = 'LLM unavailable or denied; fell back to rules.';
+								}
 					}
 				} catch (e) {
 					console.warn('Insight generation error', e);
@@ -560,26 +714,38 @@
 			}
 
 			// --- Settings ---
-			function openSettings() { qs('#settingsModal').classList.add('open'); qs('#settingsModal').setAttribute('aria-hidden', 'false');
-				const cfg = load('llmCfg', {});
-				qs('#llmBase').value = cfg.base || '';
-				qs('#llmModel').value = cfg.model || '';
-				qs('#llmKey').value = cfg.key || '';
-				qs('#settingsStatus').textContent = '';
-			}
+							function openSettings() { qs('#settingsModal').classList.add('open'); qs('#settingsModal').setAttribute('aria-hidden', 'false');
+								const llm = getLlmCfg();
+						qs('#llmBase').value = llm.base || '';
+						qs('#llmModel').value = llm.model || '';
+						qs('#llmKey').value = llm.key || '';
+						const px = getProxyCfg();
+						qs('#proxyBase').value = px.base || '';
+						qs('#proxyMode').value = px.mode || 'path';
+						qs('#proxyAlways').checked = !!px.always;
+						qs('#settingsStatus').textContent = '';
+					}
 			function closeSettings() { qs('#settingsModal').classList.remove('open'); qs('#settingsModal').setAttribute('aria-hidden', 'true'); }
 			function saveSettings() {
 				const base = qs('#llmBase').value.trim();
 				const model = qs('#llmModel').value.trim();
 				const key = qs('#llmKey').value.trim();
 				save('llmCfg', { base, model, key });
+						const pBase = qs('#proxyBase').value.trim();
+						const pMode = qs('#proxyMode').value;
+						const pAlways = qs('#proxyAlways').checked;
+						save('proxyCfg', { base: pBase, mode: pMode, always: pAlways });
 				qs('#settingsStatus').textContent = 'Saved';
 				setTimeout(() => { qs('#settingsStatus').textContent = ''; }, 1500);
 			}
-			function clearSettings() { localStorage.removeItem('llmCfg'); qs('#llmBase').value = ''; qs('#llmModel').value=''; qs('#llmKey').value=''; qs('#settingsStatus').textContent = 'Cleared'; setTimeout(()=>qs('#settingsStatus').textContent='', 1500); }
+					function clearSettings() { localStorage.removeItem('llmCfg'); localStorage.removeItem('proxyCfg'); qs('#llmBase').value = ''; qs('#llmModel').value=''; qs('#llmKey').value=''; qs('#proxyBase').value=''; qs('#proxyMode').value='path'; qs('#proxyAlways').checked=true; qs('#settingsStatus').textContent = 'Cleared'; setTimeout(()=>qs('#settingsStatus').textContent='', 1500); }
 
 			// --- Events ---
 			window.addEventListener('DOMContentLoaded', async () => {
+						// Initialize LLM defaults if not present
+						if (!localStorage.getItem('llmCfg')) {
+							save('llmCfg', { base: DEFAULT_LLM.base, model: DEFAULT_LLM.model, key: '' });
+						}
 				// Wire UI
 				qs('#addSymbolBtn').addEventListener('click', async () => {
 					const val = qs('#addSymbolInput').value.trim().toUpperCase();
@@ -599,6 +765,9 @@
 				qs('#saveSettings').addEventListener('click', saveSettings);
 				qs('#clearSettings').addEventListener('click', clearSettings);
 				qs('#refreshIdeasBtn').addEventListener('click', refreshIdeas);
+			// LLM presets
+			qs('#presetOpenAIGPT5').addEventListener('click', () => { qs('#llmBase').value = 'https://api.openai.com/v1'; qs('#llmModel').value = 'gpt-5'; });
+			qs('#presetOpenAI4oMini').addEventListener('click', () => { qs('#llmBase').value = 'https://api.openai.com/v1'; qs('#llmModel').value = 'gpt-4o-mini'; });
 				// Escape to close drawer or settings
 				window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); closeSettings(); } });
 
