@@ -3,486 +3,610 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>ASX Check – Prices + AI Overview</title>
-		<meta name="description" content="Enter ASX tickers to see live prices (no charts), get an AI-style overview (rise/fall/neutral), and simple recommendations." />
+		<title>ASX Check — Live Overview & AI Insights</title>
+		<meta name="description" content="Live ASX stock overview with price and change, click for details and AI-style insights, plus an ideas pane suggesting new stocks." />
 		<style>
 			:root {
-				--bg: #0f172a; /* slate-900 */
-				--card: #111827; /* gray-900 */
-				--muted: #94a3b8; /* slate-400 */
-				--text: #e5e7eb; /* gray-200 */
-				--accent: #22d3ee; /* cyan-400 */
-				--positive: #22c55e; /* green-500 */
-				--negative: #ef4444; /* red-500 */
-				--warning: #f59e0b; /* amber-500 */
-				--chip: #1f2937; /* gray-800 */
-				--border: #1f2937;
+				--bg: #0b0d10;
+				--panel: #11151b;
+				--card: #141a22;
+				--muted: #9fb0c0;
+				--text: #e7edf3;
+				--brand: #4aa3ff;
+				--up: #19c37d;
+				--down: #ff4d4d;
+				--warn: #ffcc66;
+				--border: #1e2630;
+				--chip: #1b2330;
 			}
 			* { box-sizing: border-box; }
-			html, body { height: 100%; }
-			body {
-				margin: 0;
-				font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
-					Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-				background: linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
-				color: var(--text);
-			}
+			html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+			a { color: var(--brand); text-decoration: none; }
 			header {
-				padding: 24px 16px;
-				display: flex;
-				align-items: center;
-				justify-content: space-between;
-				max-width: 1080px;
-				margin: 0 auto;
+				position: sticky; top: 0; z-index: 5;
+				display: flex; align-items: center; justify-content: space-between;
+				padding: 12px 16px; background: linear-gradient(180deg, rgba(11,13,16,0.95), rgba(11,13,16,0.6)); backdrop-filter: blur(6px);
+				border-bottom: 1px solid var(--border);
 			}
-			.title {
-				display: flex; gap: 12px; align-items: center;
-			}
-			.title h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
-			.badge { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
-			main { max-width: 1080px; margin: 0 auto; padding: 0 16px 48px; }
-			.card {
-				background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-				border: 1px solid var(--border);
-				border-radius: 16px;
-				padding: 16px;
-				box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-			}
-			.row { display: flex; flex-wrap: wrap; gap: 16px; }
-			.grow { flex: 1 1 auto; }
-			.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-			input[type="text"] {
-				background: #0b1020;
-				color: var(--text);
-				border: 1px solid var(--border);
-				border-radius: 10px;
-				padding: 10px 12px;
-				outline: none;
-				min-width: 260px;
-			}
-			button {
-				background: linear-gradient(180deg, #22d3ee, #06b6d4);
-				color: #002331;
-				border: none;
-				border-radius: 10px;
-				padding: 10px 14px;
-				font-weight: 700;
-				cursor: pointer;
-			}
-			button.secondary { background: #111827; color: var(--text); border: 1px solid var(--border); }
-			.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-			.chip { background: var(--chip); border: 1px solid var(--border); padding: 6px 10px; border-radius: 999px; display: inline-flex; gap: 8px; align-items: center; }
-			.chip button { background: transparent; color: var(--muted); border: none; padding: 0; cursor: pointer; }
+			.brand { display: flex; align-items: center; gap: 10px; }
+			.brand h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+			.brand .badge { font-size: 12px; color: var(--muted); background: var(--chip); padding: 3px 8px; border-radius: 99px; border: 1px solid var(--border); }
+			.actions { display: flex; gap: 8px; align-items: center; }
+			button, input, select { font: inherit; color: var(--text); }
+			.btn { background: #19212c; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; transition: 0.15s ease; }
+			.btn:hover { background: #1d2733; }
+			.btn.primary { background: #173252; border-color: #1a3a60; color: #d8ebff; }
+			.btn.primary:hover { background: #15314f; }
+			.btn.ghost { background: transparent; border-color: var(--border); }
+			.btn.small { padding: 6px 10px; border-radius: 8px; font-size: 12px; }
+			.input { background: #0f141b; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text); }
+			.container { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px; }
+			@media (max-width: 1024px) { .container { grid-template-columns: 1fr; } }
+			.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+			.panel h2 { margin: 0 0 10px; font-size: 16px; font-weight: 700; color: #d9e6f2; }
+			.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+			.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; transition: 0.18s ease; }
+			.card:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,0,0,0.25); }
+			.ticker { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+			.ticker .sym { font-weight: 800; letter-spacing: 0.3px; }
+			.name { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+			.price { display: flex; align-items: baseline; gap: 8px; }
+			.price .p { font-size: 22px; font-weight: 700; }
+			.chg { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: #0f1620; }
+			.chg.up { color: var(--up); background: rgba(25,195,125,0.08); border-color: rgba(25,195,125,0.25); }
+			.chg.down { color: var(--down); background: rgba(255,77,77,0.08); border-color: rgba(255,77,77,0.25); }
+			.meta { display: flex; gap: 10px; flex-wrap: wrap; }
+			.chip { font-size: 11px; color: var(--muted); background: var(--chip); border: 1px solid var(--border); padding: 4px 8px; border-radius: 999px; }
+			.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+			.spacer { flex: 1; }
 			.muted { color: var(--muted); }
-			.grid { display: grid; gap: 12px; margin-top: 16px; }
-			@media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-			@media (min-width: 980px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-			.stock {
-				background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-				border: 1px solid var(--border);
-				border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+			.footer { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+			.danger { color: var(--down); }
+			.success { color: var(--up); }
+			.warn { color: var(--warn); }
+
+			/* Right drawer */
+			.drawer {
+				position: fixed; right: 0; top: 0; height: 100%; width: 420px; max-width: 95vw; background: #0f141a; border-left: 1px solid var(--border);
+				box-shadow: -12px 0 24px rgba(0,0,0,0.35);
+				transform: translateX(100%);
+				transition: transform 0.22s ease-in-out; z-index: 20; display: flex; flex-direction: column;
 			}
-			.stock-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-			.ticker { font-weight: 800; letter-spacing: 0.6px; }
-			.name { color: var(--muted); font-size: 13px; }
-			.price-row { display: flex; align-items: center; justify-content: space-between; }
-			.price { font-size: 22px; font-weight: 800; }
-			.chg { font-weight: 700; }
-			.chg.up { color: var(--positive); }
-			.chg.down { color: var(--negative); }
-			.tiny { font-size: 12px; color: var(--muted); }
-			.ai { background: #0b1020; border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
-			.ai strong { font-weight: 800; }
-			.ai .rise { color: var(--positive); }
-			.ai .fall { color: var(--negative); }
-			.ai .neutral { color: var(--warning); }
-			.section-title { margin: 20px 0 10px; font-size: 18px; font-weight: 800; letter-spacing: 0.3px; }
-			.footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center; }
-			.error { color: var(--negative); font-size: 13px; }
-			.warn { color: var(--warning); font-size: 13px; }
-			.loading { color: var(--muted); font-size: 13px; }
-			.pill { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
-			.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-			a { color: var(--accent); text-decoration: none; }
+			.drawer.open { transform: translateX(0); }
+			.drawer .head { display:flex; align-items:center; gap:10px; padding: 14px; border-bottom: 1px solid var(--border); background: #0c1117; }
+			.drawer .content { padding: 14px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+			.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+			.kv .item { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
+			.kv .label { font-size: 11px; color: var(--muted); }
+			.kv .value { font-weight: 700; margin-top: 4px; }
+			.insight { background: #0e1a12; border: 1px solid rgba(25,195,125,0.35); padding: 12px; border-radius: 12px; }
+			.insight h3 { margin: 0 0 6px; font-size: 14px; }
+			.ideas { display: grid; gap: 8px; }
+			.idea { display:flex; align-items: center; justify-content: space-between; gap:10px; background: var(--card); border: 1px solid var(--border); padding: 10px; border-radius: 12px; }
+			.idea .left { display:flex; flex-direction: column; }
+			.idea .right { display:flex; gap: 6px; align-items: center; }
+			.empty { color: var(--muted); font-style: italic; }
+
+			.settings-modal {
+				position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 40;
+			}
+			.settings-modal.open { display: flex; }
+			.settings-card { width: 680px; max-width: 95vw; background: #0f141a; border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+			.settings-card h3 { margin: 0 0 8px; }
+			.settings-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+			@media (max-width: 700px) { .settings-grid { grid-template-columns: 1fr; } }
+			.field { display:flex; flex-direction: column; gap: 6px; }
+			.field label { font-size: 12px; color: var(--muted); }
+			.helper { font-size: 12px; color: var(--muted); }
+			.tag { font-size: 11px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--muted); }
 		</style>
 	</head>
 	<body>
 		<header>
-			<div class="title">
-				<svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-					<path d="M3 17l5-5 4 4 7-7" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-					<circle cx="4" cy="17" r="2" fill="#22d3ee"/>
-					<circle cx="8" cy="13" r="2" fill="#22d3ee"/>
-					<circle cx="12" cy="17" r="2" fill="#22d3ee"/>
-					<circle cx="19" cy="10" r="2" fill="#22d3ee"/>
+			<div class="brand">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+					<path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9" stroke="#4aa3ff" stroke-width="1.5"/>
+					<path d="M4 16l4-6 4 3 4-6 4 8" stroke="#19c37d" stroke-width="1.5"/>
 				</svg>
 				<h1>ASX Check</h1>
-				<span class="badge">No charts • Prices + AI overview</span>
+				<span class="badge">Live overview + AI ideas</span>
+			</div>
+			<div class="actions">
+				<div class="row">
+					<input id="addSymbolInput" class="input" placeholder="Add ticker (e.g. CSL.AX)" size="16" />
+					<button id="addSymbolBtn" class="btn">Add</button>
+				</div>
+				<button id="refreshBtn" class="btn">Refresh</button>
+				<button id="settingsBtn" class="btn ghost">Settings</button>
 			</div>
 		</header>
-		<main>
-			<section class="card" aria-labelledby="watchlist-title">
-				<h2 id="watchlist-title" class="sr-only">Watchlist</h2>
-				<div class="row" style="align-items: center;">
-					<div class="grow controls">
-						<input id="ticker-input" type="text" placeholder="Add ASX tickers, e.g. BHP.AX, CBA.AX" aria-label="Ticker input" />
-						<button id="add-btn">Add</button>
-						<button class="secondary" id="clear-btn" title="Clear all">Clear</button>
-					</div>
+
+		<main class="container">
+			<section class="panel">
+				<div class="row" style="margin-bottom:10px; align-items: baseline;">
+					<h2>Watchlist</h2>
+					<span id="lastUpdated" class="muted" style="margin-left:8px; font-size:12px;">—</span>
+					<span class="spacer"></span>
+					<span id="marketState" class="tag">ASX</span>
+				</div>
+				<div id="cards" class="grid" aria-live="polite"></div>
+				<div class="footer">
+					<span>Data from Yahoo Finance. No investment advice.</span>
 					<div>
-						<span class="tiny">Tip: Use the .AX suffix. Max 12 tickers.</span>
+						<button id="clearWatchlist" class="btn small ghost" title="Reset to defaults">Reset</button>
+						<button id="autoRefreshToggle" class="btn small" title="Toggle auto refresh">Auto refresh: <span id="autoRefreshState">On</span></button>
 					</div>
 				</div>
-				<div id="chips" class="chips" aria-live="polite"></div>
 			</section>
 
-			<section class="card" style="margin-top: 16px;" aria-labelledby="prices-title">
-				<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-					<h2 id="prices-title" class="section-title" style="margin:0;">Prices</h2>
-					<div class="tiny" id="status-msg"></div>
+			<aside class="panel">
+				<div class="row" style="margin-bottom:10px; align-items: center;">
+					<h2>AI Ideas</h2>
+					<span class="spacer"></span>
+					<button id="refreshIdeasBtn" class="btn small">Refresh ideas</button>
 				</div>
-				<div id="stocks" class="grid" aria-live="polite"></div>
-			</section>
-
-			<section class="card" style="margin-top: 16px;" aria-labelledby="reco-title">
-				<h2 id="reco-title" class="section-title" style="margin:0;">AI-based recommendations</h2>
-				<div id="recos" class="grid"></div>
-			</section>
-
-			<p class="footer">
-				Experimental and informational only. Not financial advice. Data via Yahoo Finance public quote endpoint; may be delayed or unavailable.
-			</p>
+				<div id="ideas" class="ideas">
+					<div class="empty">Ideas will appear here using recent price action and basic fundamentals.</div>
+				</div>
+			</aside>
 		</main>
 
+		<!-- Drawer for detailed view -->
+		<div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-hidden="true">
+			<div class="head">
+				<div class="row" style="gap:10px; align-items: center;">
+					<div style="font-weight:800;" id="drawerSym">—</div>
+					<div class="muted" id="drawerName">—</div>
+				</div>
+				<span class="spacer"></span>
+				<button id="drawerClose" class="btn small ghost">Close</button>
+			</div>
+			<div class="content">
+				<div class="row" style="align-items: baseline;">
+					<div class="price">
+						<span id="drawerPrice" class="p">—</span>
+						<span id="drawerChange" class="chg">—</span>
+					</div>
+					<span class="spacer"></span>
+					<span id="drawerState" class="tag">—</span>
+				</div>
+				<div class="kv">
+					<div class="item"><div class="label">Market cap</div><div id="kvCap" class="value">—</div></div>
+					<div class="item"><div class="label">P/E (ttm)</div><div id="kvPE" class="value">—</div></div>
+					<div class="item"><div class="label">Day range</div><div id="kvRange" class="value">—</div></div>
+					<div class="item"><div class="label">Volume</div><div id="kvVol" class="value">—</div></div>
+				</div>
+
+				<div id="insightBox" class="insight">
+					<h3>AI-style insight</h3>
+					<div id="insightText" style="white-space: pre-wrap;">—</div>
+					<div id="insightMeta" class="muted" style="margin-top:6px; font-size:12px;">Generated using simple rules. Configure Settings to enable LLM insights.</div>
+				</div>
+
+				<div class="panel" style="background:#0c1117;">
+					<div class="row" style="align-items: center;">
+						<h2 style="margin:0; font-size:14px;">Add to watchlist</h2>
+						<span class="spacer"></span>
+						<button id="addFromDrawer" class="btn small">Add</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Settings modal -->
+		<div id="settingsModal" class="settings-modal" aria-hidden="true">
+			<div class="settings-card">
+				<div class="row" style="align-items:center; margin-bottom:8px;">
+					<h3 style="margin:0;">Settings</h3>
+					<span class="spacer"></span>
+					<button id="closeSettings" class="btn small ghost">Close</button>
+				</div>
+				<p class="helper" style="margin-top:0;">Optionally enable an OpenAI-compatible API to generate richer insights. Keys are stored only in your browser.</p>
+				<div class="settings-grid">
+					<div class="field">
+						<label for="llmBase">API Base URL</label>
+						<input id="llmBase" class="input" placeholder="https://api.openai.com/v1" />
+					</div>
+					<div class="field">
+						<label for="llmModel">Model</label>
+						<input id="llmModel" class="input" placeholder="gpt-4o-mini" />
+					</div>
+					<div class="field" style="grid-column: 1 / -1;">
+						<label for="llmKey">API Key</label>
+						<input id="llmKey" class="input" type="password" placeholder="sk-..." />
+					</div>
+				</div>
+				<div class="row" style="margin-top:10px;">
+					<button id="saveSettings" class="btn primary">Save</button>
+					<button id="clearSettings" class="btn ghost">Clear</button>
+					<span class="spacer"></span>
+					<span id="settingsStatus" class="helper"></span>
+				</div>
+			</div>
+		</div>
+
 		<script>
-			// --- Utilities ---
-			const $ = (sel, el = document) => el.querySelector(sel);
-			const $$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+			// --- Config & Utilities ---
+			const DEFAULT_TICKERS = [
+				{ symbol: 'BHP.AX', name: 'BHP Group' },
+				{ symbol: 'CBA.AX', name: 'Commonwealth Bank' },
+				{ symbol: 'CSL.AX', name: 'CSL Limited' },
+				{ symbol: 'NAB.AX', name: 'National Australia Bank' },
+				{ symbol: 'WBC.AX', name: 'Westpac' },
+				{ symbol: 'ANZ.AX', name: 'ANZ Group' },
+				{ symbol: 'WOW.AX', name: 'Woolworths' },
+				{ symbol: 'WES.AX', name: 'Wesfarmers' },
+				{ symbol: 'TLS.AX', name: 'Telstra' },
+				{ symbol: 'MQG.AX', name: 'Macquarie Group' },
+				{ symbol: 'FMG.AX', name: 'Fortescue Metals' },
+				{ symbol: 'RIO.AX', name: 'Rio Tinto' },
+			];
 
-			const DEFAULT_TICKERS = ["BHP.AX", "CBA.AX", "CSL.AX", "NAB.AX", "WES.AX"];
-			const MAX_TICKERS = 12;
-			const STORAGE_KEY = "asxcheck_tickers";
+			// Candidate pool for ideas (ASX 20/50 style mix)
+			const IDEA_POOL = [
+				'ALL.AX','AMC.AX','AMP.AX','ANZ.AX','APA.AX','ARB.AX','ASX.AX','BHP.AX','BXB.AX','CAR.AX','CCL.AX','CIM.AX','CGF.AX','COH.AX','COL.AX','CPU.AX','CBA.AX','CSL.AX','FPH.AX','FLT.AX','FMG.AX','GMG.AX','HVN.AX','IAG.AX','JHX.AX','LIC.AX','LLC.AX','MQG.AX','NAB.AX','NCM.AX','ORG.AX','ORI.AX','QAN.AX','QBE.AX','REA.AX','REH.AX','RIO.AX','RMD.AX','SCG.AX','SEK.AX','SHL.AX','S32.AX','SUN.AX','TLS.AX','TPG.AX','TCL.AX','WES.AX','WOR.AX','WOW.AX','WPL.AX'
+			];
 
-			const state = {
-				tickers: [],
-				quotes: new Map(), // ticker -> quote object
-				scores: new Map(), // ticker -> score
-				errors: new Map(), // ticker -> error message
+			const qs = (sel, el = document) => el.querySelector(sel);
+			const qsa = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+			const fmt = new Intl.NumberFormat('en-AU');
+			const fmtPrice = (n) => n == null ? '—' : (n >= 100 ? n.toFixed(2) : n >= 10 ? n.toFixed(3) : n.toFixed(4));
+			const fmtPct = (n) => n == null ? '—' : `${(n * 100).toFixed(2)}%`;
+			const fmtPctDirect = (n) => n == null ? '—' : `${n.toFixed(2)}%`;
+			const fmtCap = (n) => {
+				if (!n && n !== 0) return '—';
+				const units = [[1e12,'T'],[1e9,'B'],[1e6,'M'],[1e3,'K']];
+				for (const [v,s] of units) if (n >= v) return `${(n/v).toFixed(2)}${s}`;
+				return String(n);
 			};
 
-			function loadTickers() {
-				try {
-					const raw = localStorage.getItem(STORAGE_KEY);
-					if (raw) {
-						const list = JSON.parse(raw);
-						if (Array.isArray(list) && list.length) return list.slice(0, MAX_TICKERS);
+			function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+			function load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
+
+			// --- Data fetchers (Yahoo Finance public endpoints) ---
+			async function fetchQuotes(symbols) {
+				if (!symbols?.length) return [];
+				const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}`;
+				const res = await fetch(url, { cache: 'no-store' });
+				if (!res.ok) throw new Error('Quote fetch failed');
+				const json = await res.json();
+				return json?.quoteResponse?.result ?? [];
+			}
+
+			async function fetchSpark(symbols, range = '5d', interval = '1d') {
+				if (!symbols?.length) return {};
+				const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
+				const res = await fetch(url, { cache: 'no-store' });
+				if (!res.ok) throw new Error('Spark fetch failed');
+				return await res.json();
+			}
+
+			// --- Rule-based AI-style insight ---
+			function rulesInsight(quote, sparkSeries) {
+				const lines = [];
+				const price = quote.regularMarketPrice ?? quote.ask ?? quote.bid;
+				const chg = quote.regularMarketChangePercent;
+				const vol = quote.regularMarketVolume;
+				const avgVol = quote.averageDailyVolume3Month ?? quote.averageDailyVolume10Day;
+				const pe = quote.trailingPE;
+				const fpe = quote.forwardPE;
+				const cap = quote.marketCap;
+				let trend5d = null;
+				if (sparkSeries?.close?.length >= 2) {
+					const arr = sparkSeries.close.filter(x => typeof x === 'number');
+					if (arr.length >= 2) {
+						trend5d = (arr[arr.length - 1] - arr[0]) / arr[0];
 					}
-				} catch {}
-				return DEFAULT_TICKERS.slice();
+				}
+
+				// Momentum/volume
+				if (chg != null) {
+					if (chg > 2) lines.push('Strong positive session momentum with >2% daily gain.');
+					else if (chg < -2) lines.push('Weak session; notable sell-off exceeding 2%.');
+					else if (Math.abs(chg) < 0.5) lines.push('Sideways day with limited movement.');
+				}
+
+				if (vol && avgVol) {
+					const volRatio = vol / avgVol;
+					if (volRatio > 1.5) lines.push('Volume expanding vs 3-mo average, confirming move.');
+					else if (volRatio < 0.6) lines.push('Subdued volume; price moves may lack conviction.');
+				}
+
+				if (trend5d != null) {
+					if (trend5d > 0.03) lines.push('5-day trend is up >3%, short-term momentum favourable.');
+					else if (trend5d < -0.03) lines.push('5-day trend is down >3%, sentiment weak near-term.');
+				}
+
+				if (pe != null) {
+					if (pe < 12) lines.push('TTM P/E is relatively low; may indicate value or low growth.');
+					else if (pe > 30) lines.push('Elevated P/E; market pricing in strong growth or premium quality.');
+				}
+				if (fpe != null && pe != null) {
+					if (fpe < pe) lines.push('Forward P/E below trailing; analysts expect earnings improvement.');
+				}
+				if (cap != null && cap < 2e9) lines.push('Smaller market cap; expect higher volatility.');
+
+				// Expected direction (very naive): blend day change and 5d trend
+				let dirScore = 0;
+				if (typeof chg === 'number') dirScore += Math.sign(chg) * Math.min(Math.abs(chg) / 2, 1); // normalize roughly
+				if (typeof trend5d === 'number') dirScore += trend5d * 10; // amplify 5d %
+				let expected = 'Neutral';
+				let confidence = 0.45 + Math.min(Math.abs(dirScore) / 3, 0.4); // 45-85%
+				if (dirScore > 0.25) expected = 'Likely up';
+				else if (dirScore < -0.25) expected = 'Likely down';
+
+				const summary = `Expected near-term: ${expected} (confidence ~${Math.round(confidence*100)}%).`;
+				return { text: lines.join('\n') + (lines.length ? '\n' : '') + summary, expected, confidence };
 			}
 
-			function saveTickers() {
-				localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tickers));
+			// --- Optional LLM integration ---
+			async function llmInsightIfConfigured(quote, sparkSeries) {
+				const cfg = load('llmCfg', {});
+				if (!cfg?.key || !cfg?.base || !cfg?.model) return null;
+				const payload = {
+					model: cfg.model,
+					messages: [
+						{ role: 'system', content: 'You are a concise equity analyst. Provide short insights (max 5 sentences), then a final line: "Expected near-term: <Up/Down/Neutral> (confidence ~NN%)." Avoid financial advice language.' },
+						{ role: 'user', content: JSON.stringify({
+							symbol: quote.symbol,
+							name: quote.shortName || quote.longName || quote.symbol,
+							price: quote.regularMarketPrice,
+							changePct: quote.regularMarketChangePercent,
+							marketCap: quote.marketCap,
+							trailingPE: quote.trailingPE,
+							forwardPE: quote.forwardPE,
+							volume: quote.regularMarketVolume,
+							avgVolume3m: quote.averageDailyVolume3Month,
+							dayRange: [quote.regularMarketDayLow, quote.regularMarketDayHigh],
+							trend5d: sparkSeries?.close?.length >= 2 ? (sparkSeries.close.at(-1) - sparkSeries.close[0]) / sparkSeries.close[0] : null,
+						}, null, 2) }
+					],
+					temperature: 0.2,
+				};
+				try {
+					const res = await fetch(cfg.base.replace(/\/$/, '') + '/chat/completions', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.key}` },
+						body: JSON.stringify(payload)
+					});
+					if (!res.ok) throw new Error(await res.text());
+					const data = await res.json();
+					const content = data?.choices?.[0]?.message?.content?.trim();
+					if (!content) return null;
+					return { text: content, expected: null, confidence: null, llm: true };
+				} catch (e) {
+					console.warn('LLM insight failed:', e);
+					return null;
+				}
 			}
 
-			function setStatus(msg, type = "") {
-				const el = document.getElementById("status-msg");
-				el.textContent = msg || "";
-				el.className = type ? type : "tiny";
-			}
+			// --- State ---
+			let watchlist = load('watchlist', DEFAULT_TICKERS);
+			let autoRefresh = load('autoRefresh', true);
+			let autoTimer = null;
+			let currentQuotes = new Map();
 
-			function normaliseTicker(t) {
-				if (!t) return "";
-				t = t.trim().toUpperCase();
-				if (!t) return "";
-				// Ensure .AX suffix if missing and looks like ASX code
-				if (!t.endsWith(".AX") && /^[A-Z]{2,4}$/.test(t)) return t + ".AX";
-				return t;
-			}
-
-			function renderChips() {
-				const chips = document.getElementById("chips");
-				chips.innerHTML = "";
-				state.tickers.forEach(t => {
-					const div = document.createElement("div");
-					div.className = "chip";
-					div.innerHTML = `<span>${t}</span> <button aria-label="Remove ${t}">✕</button>`;
-					div.querySelector("button").onclick = () => {
-						state.tickers = state.tickers.filter(x => x !== t);
-						saveTickers();
-						renderChips();
-						refreshQuotes();
-					};
-					chips.appendChild(div);
-				});
-			}
-
-			function renderStocks() {
-				const container = document.getElementById("stocks");
-				container.innerHTML = "";
-				if (state.tickers.length === 0) {
-					const p = document.createElement("p");
-					p.className = "muted";
-					p.textContent = "No tickers. Add ASX codes above to see prices.";
-					container.appendChild(p);
+			// --- Render ---
+			function renderCards(quotes) {
+				const cont = qs('#cards');
+				cont.innerHTML = '';
+				if (!quotes.length) {
+					cont.innerHTML = '<div class="empty">No symbols. Add tickers like CSL.AX or TLS.AX.</div>';
 					return;
 				}
-
-				state.tickers.forEach(ticker => {
-					const q = state.quotes.get(ticker);
-					const err = state.errors.get(ticker);
-
-					const card = document.createElement("div");
-					card.className = "stock";
-
-					const header = document.createElement("div");
-					header.className = "stock-header";
-					header.innerHTML = `<div><span class="ticker">${ticker}</span> <span class="name">${q?.longName || q?.shortName || ""}</span></div>`;
-					card.appendChild(header);
-
-					const body = document.createElement("div");
-					body.className = "price-row";
-
-					if (err) {
-						body.innerHTML = `<div class="error">${err}</div>`;
-					} else if (!q) {
-						body.innerHTML = `<div class="loading">Loading…</div>`;
-					} else {
-						const chg = q.regularMarketChangePercent;
-						const chgClass = chg > 0 ? "up" : chg < 0 ? "down" : "";
-						body.innerHTML = `
-							<div class="price">${fmtPrice(q.regularMarketPrice, q.currency)}</div>
-							<div style="text-align:right">
-								<div class="chg ${chgClass}">${fmtSign(chg)}%</div>
-								<div class="tiny">Prev ${fmtPrice(q.regularMarketPreviousClose, q.currency)}</div>
-							</div>
-						`;
-					}
-					card.appendChild(body);
-
-					const actions = document.createElement("div");
-					actions.style.display = "flex";
-					actions.style.gap = "8px";
-					actions.innerHTML = `<button class="secondary" ${q ? "" : "disabled"}>AI overview</button>`;
-					const btn = actions.querySelector("button");
-					btn.onclick = () => toggleAI(card, ticker);
-					card.appendChild(actions);
-
-					const ai = document.createElement("div");
-					ai.className = "ai";
-					ai.style.display = "none";
-					ai.setAttribute("data-ai", ticker);
-					card.appendChild(ai);
-
-					container.appendChild(card);
+				quotes.forEach(q => {
+					const chg = q.regularMarketChangePercent;
+					const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
+					const card = document.createElement('div');
+					card.className = 'card';
+					card.innerHTML = `
+						<div class="ticker">
+							<div class="sym">${q.symbol}</div>
+							<div class="name" title="${q.shortName || q.longName || ''}">${q.shortName || q.longName || ''}</div>
+						</div>
+						<div class="price">
+							<div class="p">${fmtPrice(q.regularMarketPrice)}</div>
+							<div class="chg ${cls}">${chg == null ? '—' : (chg > 0 ? '▲ ' : chg < 0 ? '▼ ' : '') + fmtPctDirect(chg)}</div>
+						</div>
+						<div class="meta">
+							<div class="chip">Mkt cap: ${fmtCap(q.marketCap)}</div>
+							<div class="chip">P/E: ${q.trailingPE?.toFixed ? q.trailingPE.toFixed(2) : '—'}</div>
+							<div class="chip">Vol: ${q.regularMarketVolume ? fmt.format(q.regularMarketVolume) : '—'}</div>
+						</div>
+					`;
+					card.addEventListener('click', () => openDrawer(q.symbol));
+					cont.appendChild(card);
 				});
 			}
 
-			function toggleAI(card, ticker) {
-				const ai = card.querySelector('.ai[data-ai="' + ticker + '"]');
-				if (!ai) return;
-				const visible = ai.style.display !== "none";
-				ai.style.display = visible ? "none" : "block";
-				if (!visible) renderAI(ai, ticker);
+			function renderFooter({ marketState, time }) {
+				qs('#marketState').textContent = `ASX · ${marketState || '—'}`;
+				qs('#lastUpdated').textContent = time ? `Updated ${time}` : '—';
+				qs('#autoRefreshState').textContent = autoRefresh ? 'On' : 'Off';
 			}
 
-			function renderAI(container, ticker) {
-				const q = state.quotes.get(ticker);
-				if (!q) { container.innerHTML = '<span class="loading">Loading…</span>'; return; }
-				const res = aiOverview(q);
-				container.innerHTML = `
-					<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-						<div><strong>AI view:</strong> <span class="${res.className}">${res.label}</span></div>
-						<span class="pill">Score: ${res.score.toFixed(1)}</span>
-					</div>
-					<div class="tiny" style="margin-top:6px;">${res.expl}</div>
-				`;
-			}
-
-					function renderRecommendations() {
-						const recos = document.getElementById("recos");
-						recos.innerHTML = "";
-						if (state.quotes.size === 0) { return; }
-						const items = state.tickers
-							.map(t => {
-								const q = state.quotes.get(t);
-								if (!q) return null;
-								const res = aiOverview(q);
-								return { t, q, res };
-							})
-							.filter(Boolean)
-							.sort((a,b) => b.res.score - a.res.score)
-							.slice(0, 3);
-						if (items.length === 0) {
-							const p = document.createElement("p");
-							p.className = "muted";
-							p.textContent = "No recommendations available yet.";
-							recos.appendChild(p);
-							return;
-						}
-						items.forEach(({ t, q, res }) => {
-							const card = document.createElement("div");
-							card.className = "stock";
-							card.innerHTML = `
-								<div class="stock-header">
-									<div><span class="ticker">${t}</span> <span class="name">${q?.longName || q?.shortName || ""}</span></div>
-									<span class="pill">Score: ${res.score.toFixed(1)}</span>
-								</div>
-								<div class="price-row">
-									<div class="price">${fmtPrice(q.regularMarketPrice, q.currency)}</div>
-									<div class="${q.regularMarketChangePercent>0?"chg up":"chg down"}">${fmtSign(q.regularMarketChangePercent)}%</div>
-								</div>
-								<div class="tiny">${res.expl}</div>
-							`;
-							recos.appendChild(card);
-						});
-					}
-
-			function fmtPrice(value, currency) {
-				if (value == null || !isFinite(value)) return "-";
-				const code = currency || "AUD";
-				try {
-					return new Intl.NumberFormat("en-AU", { style: "currency", currency: code }).format(value);
-				} catch {
-					return `${value.toFixed(2)} ${code}`;
-				}
-			}
-			function fmtSign(num) {
-				if (num == null || !isFinite(num)) return "-";
-				const s = num >= 0 ? "+" : "";
-				return s + num.toFixed(2);
-			}
-
-			// --- AI heuristic ---
-			function aiOverview(q) {
-				const price = n(q.regularMarketPrice);
-				const chgPct = n(q.regularMarketChangePercent);
-				const avg50 = n(q.fiftyDayAverage);
-				const avg200 = n(q.twoHundredDayAverage);
-				const prev = n(q.regularMarketPreviousClose);
-
-				const trend50 = avg50 > 0 ? ((price - avg50) / avg50) * 100 : NaN;
-				const trend200 = avg200 > 0 ? ((price - avg200) / avg200) * 100 : NaN;
-				const momentum = chgPct; // today momentum
-
-				// Weighted score: momentum 0.5, 50d 0.3, 200d 0.2
-				const score = (isFinite(momentum) ? 0.5 * momentum : 0)
-					+ (isFinite(trend50) ? 0.3 * trend50 : 0)
-					+ (isFinite(trend200) ? 0.2 * trend200 : 0);
-
-				let label = "Neutral"; let className = "neutral";
-				if (score > 2) { label = "Expected rise"; className = "rise"; }
-				else if (score < -2) { label = "Expected fall"; className = "fall"; }
-
-				const parts = [];
-				if (isFinite(momentum)) parts.push(`Day momentum ${fmtSign(momentum)}%`);
-				if (isFinite(trend50)) parts.push(`vs 50d ${fmtSign(trend50)}%`);
-				if (isFinite(trend200)) parts.push(`vs 200d ${fmtSign(trend200)}%`);
-				if (isFinite(prev) && isFinite(price)) parts.push(`price ${fmtPrice(price, q.currency)}`);
-				const expl = `${label} based on ${parts.join(", ")}.`;
-
-				// Cache score for recommendations
-				state.scores.set(q.symbol || q.shortName || "?", score);
-				return { score, label, className, expl };
-			}
-			function n(v) { return v == null ? NaN : Number(v); }
-
-			// --- Data fetch ---
-			async function fetchQuotesBatch(symbols) {
-				const endpoint = "https://query1.finance.yahoo.com/v7/finance/quote?symbols="
-					+ encodeURIComponent(symbols.join(","));
-				const res = await fetch(endpoint, { cache: "no-store" });
-				if (!res.ok) throw new Error(`HTTP ${res.status}`);
-				const data = await res.json();
-				const list = data?.quoteResponse?.result || [];
-				const bySymbol = new Map(list.map(x => [String(x.symbol).toUpperCase(), x]));
-				return symbols.map(sym => bySymbol.get(sym.toUpperCase()) || null);
-			}
-
+			// --- Main flow ---
 			async function refreshQuotes() {
-				renderChips();
-				renderStocks();
-				setStatus("Fetching prices…", "loading");
+				try {
+					const symbols = watchlist.map(x => x.symbol);
+					const quotes = await fetchQuotes(symbols);
+					// store
+					currentQuotes = new Map(quotes.map(q => [q.symbol, q]));
+					renderCards(quotes);
+					const any = quotes[0];
+					renderFooter({ marketState: any?.marketState, time: new Date().toLocaleString() });
+				} catch (e) {
+					console.error(e);
+					qs('#cards').innerHTML = `<div class="empty">Failed to load quotes. ${e?.message || e}</div>`;
+				}
+			}
 
-				state.quotes.clear();
-				state.scores.clear();
-				state.errors.clear();
+			function ensureAutoRefresh() {
+				if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+				if (autoRefresh) autoTimer = setInterval(refreshQuotes, 60_000);
+			}
 
-				const tickers = state.tickers.slice(0, MAX_TICKERS);
-				if (tickers.length === 0) { setStatus(""); renderRecommendations(); return; }
+			// --- Drawer ---
+			async function openDrawer(symbol) {
+				const drawer = qs('#drawer');
+				const q = currentQuotes.get(symbol);
+				if (!q) return;
+				qs('#drawer').setAttribute('aria-hidden', 'false');
+				drawer.classList.add('open');
+				qs('#drawerSym').textContent = q.symbol;
+				qs('#drawerName').textContent = q.shortName || q.longName || '';
+				const chg = q.regularMarketChangePercent;
+				const cls = chg > 0 ? 'chg up' : chg < 0 ? 'chg down' : 'chg';
+				qs('#drawerPrice').textContent = fmtPrice(q.regularMarketPrice);
+				const chgEl = qs('#drawerChange');
+				chgEl.className = cls; chgEl.textContent = chg == null ? '—' : (chg > 0 ? '▲ ' : chg < 0 ? '▼ ' : '') + fmtPctDirect(chg);
+				qs('#drawerState').textContent = q.marketState || '—';
+				qs('#kvCap').textContent = fmtCap(q.marketCap);
+				qs('#kvPE').textContent = q.trailingPE?.toFixed ? q.trailingPE.toFixed(2) : '—';
+				qs('#kvRange').textContent = `${fmtPrice(q.regularMarketDayLow)} – ${fmtPrice(q.regularMarketDayHigh)}`;
+				qs('#kvVol').textContent = q.regularMarketVolume ? fmt.format(q.regularMarketVolume) : '—';
+				qs('#addFromDrawer').onclick = () => addToWatchlist(symbol, q.shortName || q.longName || symbol);
 
-				// Yahoo supports batching; split into chunks of up to ~10 to be safe
-				const chunks = [];
-				for (let i = 0; i < tickers.length; i += 8) chunks.push(tickers.slice(i, i + 8));
-
-				let anyOk = false; let anyErr = false;
-				for (const group of chunks) {
-					try {
-						const results = await fetchQuotesBatch(group);
-						results.forEach((q, idx) => {
-							const sym = group[idx];
-							if (q && isFinite(Number(q.regularMarketPrice))) {
-								state.quotes.set(sym, q);
-							} else {
-								state.errors.set(sym, "No data returned (check symbol)");
-							}
-						});
-						anyOk = true;
-					} catch (e) {
-						// Fallback: mark errors for this group
-						group.forEach(sym => state.errors.set(sym, "Live data unavailable (CORS or network)"));
-						anyErr = true;
+				// Insights: fetch spark and compute
+				qs('#insightText').textContent = 'Generating...';
+				qs('#insightMeta').textContent = 'Generated using simple rules. Configure Settings to enable LLM insights.';
+				try {
+					const spark = await fetchSpark([symbol], '5d', '1d');
+					const series = spark?.[symbol];
+					const llm = await llmInsightIfConfigured(q, series);
+					if (llm?.text) {
+						qs('#insightText').textContent = llm.text;
+						qs('#insightMeta').textContent = 'Generated by your configured LLM.';
+					} else {
+						const r = rulesInsight(q, series);
+						qs('#insightText').textContent = r.text;
 					}
+				} catch (e) {
+					console.warn('Insight generation error', e);
+					const r = rulesInsight(q, null);
+					qs('#insightText').textContent = r.text + '\n(Note: trend data unavailable.)';
 				}
-
-				renderStocks();
-				renderRecommendations();
-				if (anyOk && !anyErr) setStatus("Live data loaded.");
-				else if (anyOk && anyErr) setStatus("Partial data loaded; some failed.", "warn");
-				else setStatus("Could not load live data. Try again later.", "error");
+			}
+			function closeDrawer() {
+				qs('#drawer').classList.remove('open');
+				qs('#drawer').setAttribute('aria-hidden', 'true');
 			}
 
-			// --- Event handlers ---
-			function onAddTickers() {
-				const input = document.getElementById("ticker-input");
-				const raw = input.value;
-				const parts = raw.split(/[,\s]+/).map(normaliseTicker).filter(Boolean);
-				input.value = "";
-				if (parts.length === 0) return;
-				const set = new Set(state.tickers);
-				for (const p of parts) {
-					if (set.size >= MAX_TICKERS) break;
-					set.add(p);
+			// --- Watchlist ops ---
+			function persistWatchlist() { save('watchlist', watchlist); }
+			async function addToWatchlist(symbol, name) {
+				if (!symbol?.endsWith('.AX')) symbol = symbol + '.AX';
+				if (watchlist.some(w => w.symbol.toUpperCase() === symbol.toUpperCase())) return;
+				watchlist.push({ symbol: symbol.toUpperCase(), name: name || symbol.toUpperCase() });
+				persistWatchlist();
+				await refreshQuotes();
+			}
+			function resetWatchlist() {
+				watchlist = [...DEFAULT_TICKERS];
+				persistWatchlist();
+				refreshQuotes();
+			}
+
+			// --- Ideas pane ---
+			async function refreshIdeas() {
+				const out = qs('#ideas');
+				out.innerHTML = '<div class="empty">Scanning universe…</div>';
+				try {
+					// Only consider symbols not in watchlist
+					const watchSet = new Set(watchlist.map(w => w.symbol.toUpperCase()));
+					const pool = IDEA_POOL.filter(s => !watchSet.has(s.toUpperCase())).slice(0, 45);
+					const quotes = await fetchQuotes(pool);
+					// Rank by simple composite: 5d trend + day change, prefer liquid
+					const symArr = quotes.map(q => q.symbol);
+					const sparks = await fetchSpark(symArr, '5d', '1d');
+					const scored = quotes.map(q => {
+						const sp = sparks?.[q.symbol];
+						let trend5d = 0;
+						if (sp?.close?.length >= 2) {
+							const a = sp.close.filter(x => typeof x === 'number');
+							if (a.length >= 2) trend5d = (a[a.length-1] - a[0]) / a[0];
+						}
+						const day = (q.regularMarketChangePercent || 0) / 100;
+						const volBoost = Math.min((q.regularMarketVolume || 0) / (q.averageDailyVolume3Month || 1), 2);
+						const peAdj = (q.trailingPE && q.trailingPE > 0) ? (q.trailingPE < 15 ? 0.05 : q.trailingPE > 40 ? -0.05 : 0) : 0;
+						const score = (trend5d * 0.7) + (day * 0.3) + (volBoost - 1) * 0.05 + peAdj;
+						return { q, score, trend5d };
+					}).sort((a,b) => b.score - a.score);
+
+					const picks = scored.slice(0, 5);
+					out.innerHTML = '';
+					picks.forEach(({ q, trend5d }) => {
+						const chg = q.regularMarketChangePercent;
+						const el = document.createElement('div');
+						el.className = 'idea';
+						el.innerHTML = `
+							<div class="left">
+								<div><strong>${q.symbol}</strong> · <span class="muted">${q.shortName || q.longName || ''}</span></div>
+								<div class="muted" style="font-size:12px;">Price ${fmtPrice(q.regularMarketPrice)} · Day ${chg == null ? '—' : fmtPctDirect(chg)} · 5d ${(trend5d*100).toFixed(2)}%</div>
+							</div>
+							<div class="right">
+								<button class="btn small" data-add-symbol="${q.symbol}">Add</button>
+								<button class="btn small ghost" data-open-symbol="${q.symbol}">View</button>
+							</div>`;
+						el.querySelector('[data-add-symbol]')?.addEventListener('click', () => addToWatchlist(q.symbol, q.shortName || q.longName || q.symbol));
+						el.querySelector('[data-open-symbol]')?.addEventListener('click', () => openDrawer(q.symbol));
+						out.appendChild(el);
+					});
+					if (!picks.length) out.innerHTML = '<div class="empty">No ideas right now. Try again later.</div>';
+				} catch (e) {
+					console.warn(e);
+					out.innerHTML = '<div class="empty">Failed to load ideas.</div>';
 				}
-				state.tickers = Array.from(set).slice(0, MAX_TICKERS);
-				saveTickers();
-				renderChips();
-				refreshQuotes();
 			}
 
-			function onClear() {
-				state.tickers = [];
-				saveTickers();
-				renderChips();
-				refreshQuotes();
+			// --- Settings ---
+			function openSettings() { qs('#settingsModal').classList.add('open'); qs('#settingsModal').setAttribute('aria-hidden', 'false');
+				const cfg = load('llmCfg', {});
+				qs('#llmBase').value = cfg.base || '';
+				qs('#llmModel').value = cfg.model || '';
+				qs('#llmKey').value = cfg.key || '';
+				qs('#settingsStatus').textContent = '';
 			}
+			function closeSettings() { qs('#settingsModal').classList.remove('open'); qs('#settingsModal').setAttribute('aria-hidden', 'true'); }
+			function saveSettings() {
+				const base = qs('#llmBase').value.trim();
+				const model = qs('#llmModel').value.trim();
+				const key = qs('#llmKey').value.trim();
+				save('llmCfg', { base, model, key });
+				qs('#settingsStatus').textContent = 'Saved';
+				setTimeout(() => { qs('#settingsStatus').textContent = ''; }, 1500);
+			}
+			function clearSettings() { localStorage.removeItem('llmCfg'); qs('#llmBase').value = ''; qs('#llmModel').value=''; qs('#llmKey').value=''; qs('#settingsStatus').textContent = 'Cleared'; setTimeout(()=>qs('#settingsStatus').textContent='', 1500); }
 
-			// --- Init ---
-			function init() {
-				state.tickers = loadTickers();
-				renderChips();
-				renderStocks();
-				refreshQuotes();
-
-				document.getElementById("add-btn").addEventListener("click", onAddTickers);
-				document.getElementById("clear-btn").addEventListener("click", onClear);
-				const input = document.getElementById("ticker-input");
-				input.addEventListener("keydown", (e) => {
-					if (e.key === "Enter") onAddTickers();
+			// --- Events ---
+			window.addEventListener('DOMContentLoaded', async () => {
+				// Wire UI
+				qs('#addSymbolBtn').addEventListener('click', async () => {
+					const val = qs('#addSymbolInput').value.trim().toUpperCase();
+					if (!val) return;
+					await addToWatchlist(val, val);
+					qs('#addSymbolInput').value = '';
 				});
-			}
+				qs('#addSymbolInput').addEventListener('keydown', async (e) => {
+					if (e.key === 'Enter') { e.preventDefault(); qs('#addSymbolBtn').click(); }
+				});
+				qs('#refreshBtn').addEventListener('click', refreshQuotes);
+				qs('#clearWatchlist').addEventListener('click', resetWatchlist);
+				qs('#autoRefreshToggle').addEventListener('click', () => { autoRefresh = !autoRefresh; save('autoRefresh', autoRefresh); ensureAutoRefresh(); renderFooter({ marketState: qs('#marketState').textContent, time: new Date().toLocaleString() }); });
+				qs('#drawerClose').addEventListener('click', closeDrawer);
+				qs('#settingsBtn').addEventListener('click', openSettings);
+				qs('#closeSettings').addEventListener('click', closeSettings);
+				qs('#saveSettings').addEventListener('click', saveSettings);
+				qs('#clearSettings').addEventListener('click', clearSettings);
+				qs('#refreshIdeasBtn').addEventListener('click', refreshIdeas);
+				// Escape to close drawer or settings
+				window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); closeSettings(); } });
 
-			document.addEventListener("DOMContentLoaded", init);
+				// Initial load
+				await refreshQuotes();
+				ensureAutoRefresh();
+				await refreshIdeas();
+			});
 		</script>
 	</body>
-</html>
+	</html>
