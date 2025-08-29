@@ -1,1353 +1,488 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>ASX Live Quotes — Real-time Stocks with Interactive Chart</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Lightweight, modern UI font -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-  --bg: #0b0f1a;
-  --card: #12182a;
-  --card-2: #1a2033;
-  --muted: #8b96a9;
-  --text: #e6eaf3;
-  --accent: #2ea7ff;
-  --grid: rgba(255,255,255,.08);
-  --green: #27c782;
-  --red: #ff5c5c;
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto;
-      color: var(--text);
-      overflow-x: hidden;
-      background: radial-gradient(circle at 20% -10%, rgba(79,154,255,.15) 0%, rgba(79,154,255,.0) 40%),
-                  radial-gradient(circle at 100% 0%, rgba(255,255,255,.06) 0%, rgba(255,255,255,.0) 40%),
-                  linear-gradient(#0b0e1a, #0b0e1a);
-    }
-
-    header {
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      border-bottom: 1px solid var(--grid);
-      position: sticky;
-      top: 0;
-      background: rgba(15,18,32,.92);
-      backdrop-filter: saturate(1.2) blur(6px);
-      z-index: 10;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .brand .logo {
-      width: 38px; height: 38px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #4f9aff 0%, #7c5cff 70%);
-      display: inline-block;
-    }
-
-    h1 {
-      font-size: 1.15rem;
-      font-weight: 700;
-      margin: 0;
-      letter-spacing: .2px;
-    }
-
-    main.layout {
-      display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 14px;
-      padding: 14px 16px 40px;
-      max-width: 1200px;
-      margin: 0 auto;
-      width: 100%;
-    }
-
-    /* Panels */
-    .panel {
-      background: linear-gradient(180deg, rgba(20,25,50,.95), rgba(20,25,50,.92));
-      border: 1px solid var(--grid);
-      border-radius: 12px;
-      padding: 12px;
-      min-height: 400px;
-      box-shadow: 0 10px 25px rgba(0,0,0,.25);
-    }
-
-  #watchPanel .panelHeader {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 6px 6px 6px;
-      margin-bottom: 6px;
-      border-bottom: 1px solid var(--grid);
-    }
-  #watchPanel h2 { font-size: 0.95rem; margin: 0; font-weight: 700; }
-  /* Mini chart grid */
-  #miniGrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:10px; max-height: calc(100% - 50px); overflow:auto; padding-right:6px; }
-  .miniCard { border:1px solid var(--grid); border-radius:10px; padding:8px; background: linear-gradient(180deg, rgba(7,12,28,.6), rgba(7,12,28,.3)); cursor:pointer; }
-  .miniCard:hover { border-color: var(--accent); background: linear-gradient(180deg, rgba(10,16,34,.7), rgba(10,16,34,.45)); }
-  .miniHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
-  .miniSym { font-weight:700; letter-spacing:.2px; }
-  .miniPrice { font-weight:700; font-feature-settings:'tnum' 1; }
-  .miniCanvas { width:100%; height:90px; display:block; }
-
-  /* Range selector */
-  .rangeGroup { display:flex; gap:6px; background: rgba(255,255,255,.04); padding:4px; border-radius:10px; border:1px solid var(--grid); }
-  .rangeGroup button { padding:6px 8px; border-radius:8px; border:1px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font-weight:600; font-size:.82rem; }
-  .rangeGroup button:hover { color: var(--text); border-color: var(--grid); }
-  .rangeGroup button.active { background:#0a1130; color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(46,167,255,.25) inset; }
-
-    .statCard {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
-      margin-top: 8px;
-    }
-
-    .statTile {
-      background: rgba(255,255,255,.04);
-      border: 1px solid var(--grid);
-      border-radius: 10px;
-      padding: 8px 10px;
-      display: grid; gap: 4px;
-    }
-    .statTile .label { font-size: .75rem; color: var(--muted); }
-    .statTile .value { font-size: 1.05rem; font-weight: 700; }
-
-  /* Connection status badge */
-  .connBadge { display:inline-block; margin-left:8px; padding:4px 8px; border-radius:999px; font-size:.8rem; font-weight:700; border:1px solid var(--grid); }
-  .conn-ok { background:#0a2f1c; color:#c8facc; border-color: rgba(39,199,130,.4); }
-  .conn-demo { background:#2a2638; color:#d8c6ff; border-color: rgba(124,92,255,.4); }
-  .conn-err { background:#2f0a0a; color:#ffdcdc; border-color: rgba(255,92,92,.4); }
-
-    #chartCard {
-      --price-h: 360px;
-      --vol-h: 120px;
-      display: grid;
-      grid-template-rows: auto var(--price-h) var(--vol-h);
-      overflow: hidden;
-    }
-  #chartCard canvas { width: 100%; height: 100%; display:block; }
-
-    @media (max-width: 980px) {
-      main.layout {
-  grid-template-columns: 1fr;
-        padding: 8px 12px 40px;
-      }
-      #watchPanel { order: 2; }
-  #chartCard { order: 1; --price-h: 280px; --vol-h: 120px; }
-    }
-
-    /* Auth overlay */
-    #authOverlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(10, 12, 24, 0.9);
-      backdrop-filter: blur(6px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10000;
-    }
-    #authCard {
-      background: var(--card);
-      border: 1px solid var(--grid);
-      border-radius: 12px;
-      padding: 18px;
-      width: 320px;
-      box-shadow: 0 10px 25px rgba(0,0,0,.35);
-    }
-    #authCard h3 { margin: 0 0 10px 0; }
-    #authCard input[type="password"] {
-      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--grid);
-      background: #0a1130; color: var(--text); margin: 8px 0 12px 0;
-    }
-    #authCard button {
-      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--grid);
-      background: #0a0f2a; color: var(--text); cursor: pointer; font-weight: 700;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="brand" aria-label="Brand">
-      <span class="logo" aria-hidden="true"></span>
-      <div>
-        <h1>ASX Live Quotes</h1>
-        <div style="font-size:.8rem; color:var(--muted)">
-          Real-time prices for selected ASX stocks with an AI-ready data structure.
-        </div>
-      </div>
-    </div>
-    <div aria-label="AI-ready export" style="text-align:right">
-      <button id="exportAiBtn" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">
-        Export AI-ready data
-      </button>
-      <button id="dataSourceBtn" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer; margin-left:8px">
-        Data source
-      </button>
-  <span id="connBadge" class="connBadge conn-err" title="Connection status">Connecting…</span>
-    </div>
-  </header>
-
-  <main class="layout" aria-label="Main layout with stock selector and chart">
-    <!-- Mini chart panel -->
-    <aside id="watchPanel" class="panel" aria-label="Mini charts panel">
-      <div class="panelHeader">
-        <h2>Market panel</h2>
-      </div>
-      <div id="miniGrid" aria-label="Grid of mini stock charts"></div>
-      <div class="statCard" id="summaryPanel" aria-label="Basic summary stats for selected stocks"></div>
-    </aside>
-
-    <!-- Interactive chart -->
-    <section id="chartCard" class="panel" aria-label="Interactive price chart for selected stocks">
-      <div style="padding:6px 6px 0 6px; display:flex; justify-content: space-between; align-items: center; gap:8px; flex-wrap:wrap">
-        <div style="font-weight:700; font-size:1rem;">Price Movement</div>
-        <div class="rangeGroup" id="rangeGroup" aria-label="Time range selector">
-          <button data-range="30m" class="active">30m</button>
-          <button data-range="5h">5h</button>
-          <button data-range="12h">12h</button>
-          <button data-range="1d">1d</button>
-          <button data-range="5d">5d</button>
-          <button data-range="1w">1w</button>
-          <button data-range="1mo">1mo</button>
-          <button data-range="6mo">6mo</button>
-          <button data-range="1y">1y</button>
-          <button data-range="max">Max</button>
-        </div>
-      </div>
-  <canvas id="priceChart" aria-label="Price chart canvas"></canvas>
-  <canvas id="volumeChart" aria-label="Volume chart canvas"></canvas>
-    </section>
-  </main>
-  <!-- Simple password gate (client-side only) -->
-  <div id="authOverlay" aria-modal="true" role="dialog">
-    <div id="authCard">
-      <h3>Enter Password</h3>
-      <div style="font-size:.85rem; color:var(--muted)">This site is restricted. Please enter the access password.</div>
-      <input id="authPassword" type="password" placeholder="Password" aria-label="Password" />
-      <div id="authError" style="color: var(--red); display:none; font-size:.85rem; margin-bottom:8px">Incorrect password. Try again.</div>
-      <button id="authSubmit">Unlock</button>
-    </div>
-  </div>
-
-  <footer style="text-align:center; padding:20px; color:var(--muted);">
-    Disclaimer: Real-time data requires a live data feed. In environments without a connected feed, a mock provider is used for demonstration.
-  </footer>
-
-  <script>
-    // == CONFIG / DATA ==
-    // CORS/Provider configuration. For static deployments (e.g., GitHub Pages),
-    // direct calls to Yahoo will be blocked by CORS. Set YAHOO_PROXY to a
-    // small server/worker you control that forwards to Yahoo and adds
-    // Access-Control-Allow-Origin: *. Leave empty to skip Yahoo on GH Pages.
-    const CONFIG = {
-      // Set to a proxy base that mirrors Yahoo paths, e.g.
-      //   https://your-worker.example.workers.dev
-      // The app will call: `${YAHOO_PROXY}/v7/finance/quote?...` and `/v8/finance/chart/...`
-  YAHOO_PROXY: '',
-  PROVIDER: 'yahoo', // 'yahoo' | 'finnhub'
-  FINNHUB_TOKEN: ''
-    };
-
-    const CATALOG = [
-      { symbol: 'BHP.AX', name: 'BHP Group Ltd', color: '#4f8cff' },
-      { symbol: 'CSL.AX', name: 'CSL Limited', color: '#00d084' },
-      { symbol: 'CBA.AX', name: 'Commonwealth Bank of Australia', color: '#f72585' },
-      { symbol: 'WBC.AX', name: 'Westpac Banking Corp', color: '#ffd166' },
-      { symbol: 'NAB.AX', name: 'National Australia Bank', color: '#118ab2' },
-      { symbol: 'TLS.AX', name: 'Telstra Corp', color: '#84cc16' },
-      { symbol: 'ANZ.AX', name: 'Australia and New Zealand Banking Group', color: '#f57c00' },
-    ];
-    const state = {
-      selected: new Set(['BHP.AX']),
-      primarySymbol: 'BHP.AX',
-  activeRange: '30m',
-      prices: {},
-      volumes: {},
-      history: {},
-      openingPrice: {},
-      chart: null,
-  volumeChart: null,
-      chartDatasets: {},
-      lastUpdate: 0,
-      colorsBySymbol: {},
-  isMock: false // toggled when demo feed is used
-    };
-    const COLOR_POOL = [
-      '#4f8cff', '#4caf50', '#ff7b54', '#f44336', '#ffd166',
-      '#8e44ad', '#2ecc71', '#1abc9c', '#e67e22', '#e74c3c', '#9b59b6'
-    ];
-
-  // == UI HELPERS ==
-  const miniGridEl = document.getElementById('miniGrid');
-  const priceCanvas = document.getElementById('priceChart');
-  const volumeCanvas = document.getElementById('volumeChart');
-  const priceChartCtx = priceCanvas?.getContext('2d');
-  const volumeChartCtx = volumeCanvas?.getContext('2d');
-  const summaryPanel = document.getElementById('summaryPanel');
-  const exportAiBtn = document.getElementById('exportAiBtn');
-  const dataSourceBtn = document.getElementById('dataSourceBtn');
-  const connBadge = document.getElementById('connBadge');
-
-    function fmt(n) {
-      if (n === undefined || n === null || Number.isNaN(n)) return '-';
-      return Number(n).toFixed(2);
-    }
-    function deltaColor(delta) {
-      if (delta > 0) return 'var(--green)';
-      if (delta < 0) return 'var(--red)';
-      return 'var(--muted)';
-    }
-    function colorForSymbol(symbol) {
-      if (state.colorsBySymbol[symbol]) return state.colorsBySymbol[symbol];
-      const used = Object.values(state.colorsBySymbol);
-      const idx = used.length % COLOR_POOL.length;
-      const color = COLOR_POOL[idx];
-      state.colorsBySymbol[symbol] = color;
-      return color;
-    }
-
-    // == CHART (Custom Canvas) ==
-    function initChart() {
-      if (!priceCanvas || !volumeCanvas) return;
-      // View state
-      if (!state._view) {
-        state._view = {
-          xMin: Date.now() - 60 * 60 * 1000,
-          xMax: Date.now(),
-          padding: { left: 56, right: 56, top: 10, bottom: 8 },
-          cross: { active: false, x: 0, y: 0 },
-          panning: false,
-          panStartPx: 0,
-          panRange: [0, 0],
-        };
-      }
-      const view = state._view;
-
-      function setCanvasSize(canvas) {
-        const dpr = Math.max(1, window.devicePixelRatio || 1);
-        const rect = canvas.getBoundingClientRect();
-        if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
-          canvas.width = Math.floor(rect.width * dpr);
-          canvas.height = Math.floor(rect.height * dpr);
-        }
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        return { width: rect.width, height: rect.height };
-      }
-
-      function getData() {
-        const sym = state.primarySymbol;
-        return state.history[sym] || [];
-      }
-
-      function computeYRange(points) {
-        if (!points || points.length === 0) return [0, 1];
-        let min = Infinity, max = -Infinity;
-        for (const p of points) { if (p.price == null) continue; if (p.price < min) min = p.price; if (p.price > max) max = p.price; }
-        if (!isFinite(min) || !isFinite(max)) return [0, 1];
-        if (min === max) { const pad = Math.max(0.5, min * 0.01); return [min - pad, max + pad]; }
-        const pad = (max - min) * 0.08;
-        return [min - pad, max + pad];
-      }
-
-      function computeVolRange(points) {
-        if (!points || points.length === 0) return [0, 1];
-        let max = 0;
-        for (const p of points) { const v = Number(p.volume || 0); if (v > max) max = v; }
-        return [0, max * 1.15 + 1];
-      }
-
-      // Nice ticks for numeric axis
-      function niceStep(min, max, maxTicks = 6) {
-        const span = Math.max(1e-9, max - min);
-        const rough = span / Math.max(1, maxTicks);
-        const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
-        const frac = rough / pow10;
-        let niceFrac = 1;
-        if (frac <= 1) niceFrac = 1; else if (frac <= 2) niceFrac = 2; else if (frac <= 2.5) niceFrac = 2.5; else if (frac <= 5) niceFrac = 5; else niceFrac = 10;
-        return niceFrac * pow10;
-      }
-      function genTicks(min, max, maxTicks = 6) {
-        const step = niceStep(min, max, maxTicks);
-        const start = Math.ceil(min / step) * step;
-        const ticks = [];
-        for (let v = start; v <= max + 1e-9; v += step) ticks.push(Number(v.toFixed(10)));
-        return ticks;
-      }
-
-      // Time ticks selection
-      function chooseTimeStep(spanMs) {
-        const min = 60 * 1000, hr = 60 * min, day = 24 * hr, wk = 7 * day, mo = 30 * day;
-        if (spanMs <= 45 * min) return 5 * min;
-        if (spanMs <= 4 * hr) return 15 * min;
-        if (spanMs <= 12 * hr) return 30 * min;
-        if (spanMs <= 2 * day) return 1 * hr;
-        if (spanMs <= 10 * day) return 6 * hr;
-        if (spanMs <= 60 * day) return 1 * day;
-        if (spanMs <= 365 * day) return 1 * wk;
-        return 3 * mo;
-      }
-      function genTimeTicks(minT, maxT) {
-        const step = chooseTimeStep(maxT - minT);
-        const start = Math.floor(minT / step) * step;
-        const ticks = [];
-        for (let t = start; t <= maxT + 1; t += step) ticks.push(t);
-        return { ticks, step };
-      }
-      function fmtTime(t, step) {
-        const d = new Date(t);
-        const min = 60 * 1000, hr = 60 * min, day = 24 * hr;
-        if (step <= 30 * min) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        if (step <= 6 * hr) return d.toLocaleTimeString([], { hour: '2-digit' });
-        if (step <= day) return d.toLocaleTimeString([], { hour: '2-digit' });
-        if (step <= 60 * day) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        return d.toLocaleDateString([], { month: 'short', year: '2-digit' });
-      }
-
-      function render() {
-        const priceCtx = priceCanvas.getContext('2d');
-        const volCtx = volumeCanvas.getContext('2d');
-        if (!priceCtx || !volCtx) return;
-  const { width: pw, height: ph } = setCanvasSize(priceCanvas);
-  const { width: vw, height: vh } = setCanvasSize(volumeCanvas);
-        const pad = view.padding;
-        const all = getData();
-
-        // Ensure x range
-        if (!isFinite(view.xMin) || !isFinite(view.xMax) || view.xMin >= view.xMax) {
-          const minT = all.length ? all[0].t : Date.now() - 60 * 60 * 1000;
-          const maxT = all.length ? all[all.length - 1].t : Date.now();
-          view.xMin = minT; view.xMax = maxT;
-        }
-
-        // Visible slice
-        const vis = all.filter(p => p.t >= view.xMin && p.t <= view.xMax);
-        // Compute ranges
-        const pricePoints = vis.length ? vis : all;
-        const [yMin, yMax] = computeYRange(pricePoints);
-        const [vMin, vMax] = computeVolRange(pricePoints);
-
-        // Mapping
-        const xToPx = (t, w) => {
-          const span = Math.max(1, view.xMax - view.xMin);
-          const inner = w - pad.left - pad.right;
-          return pad.left + (t - view.xMin) / span * inner;
-        };
-        const yToPx = (y, h) => {
-          const inner = h - pad.top - pad.bottom;
-          return pad.top + (1 - (y - yMin) / Math.max(1e-9, (yMax - yMin))) * inner;
-        };
-        const volToPx = (y, h) => {
-          const inner = h - pad.top - pad.bottom;
-          return pad.top + (1 - (y - vMin) / Math.max(1e-9, (vMax - vMin))) * inner;
-        };
-
-        // Clear
-        priceCtx.clearRect(0, 0, pw, ph);
-        volCtx.clearRect(0, 0, vw, vh);
-
-        // Grid + Y axis labels on price chart
-        priceCtx.save();
-        const grid = getComputedStyle(document.documentElement).getPropertyValue('--grid') || 'rgba(255,255,255,.08)';
-        priceCtx.strokeStyle = grid; priceCtx.lineWidth = 1;
-  priceCtx.fillStyle = '#e5e7eb'; priceCtx.font = '600 12px Inter, system-ui, sans-serif';
-        const yTicks = genTicks(yMin, yMax, 6);
-        yTicks.forEach(v => {
-          const y = yToPx(v, ph);
-          priceCtx.beginPath(); priceCtx.moveTo(pad.left, y); priceCtx.lineTo(pw - pad.right, y); priceCtx.stroke();
-          const label = Number(v).toFixed(2);
-          priceCtx.fillText(label, pw - pad.right + 6, y + 4);
-        });
-        priceCtx.restore();
-
-  // Time ticks (compute once)
-  const tickData = genTimeTicks(view.xMin, view.xMax);
-  const tTicks = tickData.ticks;
-  const tStep = tickData.step;
-
-  // Time ticks on volume chart
-        volCtx.save();
-        volCtx.strokeStyle = grid; volCtx.lineWidth = 1;
-  volCtx.fillStyle = '#e5e7eb'; volCtx.font = '600 12px Inter, system-ui, sans-serif';
-        tTicks.forEach(t => {
-          const x = xToPx(t, vw);
-          volCtx.beginPath(); volCtx.moveTo(x, pad.top); volCtx.lineTo(x, vh - pad.bottom); volCtx.stroke();
-          const label = fmtTime(t, tStep);
-          volCtx.fillText(label, x + 4, vh - 4);
-        });
-        volCtx.restore();
-
-        // Price segments
-        if (pricePoints.length >= 2) {
-          const up = '#27c782', down = '#ff5c5c';
-          priceCtx.lineWidth = 2;
-          const gapThresh = tStep * 3; // do not connect across big time gaps
-          for (let i = 1; i < pricePoints.length; i++) {
-            const p0 = pricePoints[i - 1];
-            const p1 = pricePoints[i];
-            const x0 = xToPx(p0.t, pw), y0 = yToPx(p0.price, ph);
-            const x1 = xToPx(p1.t, pw), y1 = yToPx(p1.price, ph);
-            // Skip drawing if gap too large (prevents long diagonal artifact)
-            if ((p1.t - p0.t) > gapThresh) continue;
-            priceCtx.strokeStyle = p1.price >= p0.price ? up : down;
-            priceCtx.beginPath(); priceCtx.moveTo(x0, y0); priceCtx.lineTo(x1, y1); priceCtx.stroke();
-          }
-        }
-
-        // Volume bars
-        if (pricePoints.length) {
-          const innerW = vw - pad.left - pad.right;
-          const barW = Math.max(1, Math.floor(innerW / Math.max(10, pricePoints.length) * 0.8));
-          for (let i = 0; i < pricePoints.length; i++) {
-            const p = pricePoints[i];
-            const prev = i > 0 ? pricePoints[i - 1] : p;
-            const x = xToPx(p.t, vw);
-            const y = volToPx(p.volume || 0, vh);
-            const base = volToPx(0, vh);
-            volCtx.fillStyle = (p.price >= prev.price) ? 'rgba(39,199,130,.6)' : 'rgba(255,92,92,.6)';
-            volCtx.fillRect(Math.round(x - barW / 2), Math.round(y), barW, Math.round(base - y));
-          }
-        }
-
-        // Crosshair
-        if (view.cross.active) {
-          const cx = view.cross.x, cy = view.cross.y;
-          priceCtx.save(); priceCtx.strokeStyle = 'rgba(255,255,255,.35)'; priceCtx.lineWidth = 1;
-          priceCtx.beginPath(); priceCtx.moveTo(cx, pad.top); priceCtx.lineTo(cx, ph - pad.bottom); priceCtx.stroke();
-          priceCtx.beginPath(); priceCtx.moveTo(pad.left, cy); priceCtx.lineTo(pw - pad.right, cy); priceCtx.stroke();
-          priceCtx.restore();
-        }
-
-        // Zoom rectangle overlay
-        if (view.zooming && typeof view.zoomRectStartX === 'number' && typeof view.zoomRectEndX === 'number') {
-          const x0 = Math.min(view.zoomRectStartX, view.zoomRectEndX);
-          const x1 = Math.max(view.zoomRectStartX, view.zoomRectEndX);
-          priceCtx.save();
-          priceCtx.fillStyle = 'rgba(46,167,255,0.15)';
-          priceCtx.strokeStyle = 'rgba(46,167,255,0.6)';
-          priceCtx.lineWidth = 1;
-          priceCtx.fillRect(x0, pad.top, Math.max(0, x1 - x0), ph - pad.top - pad.bottom);
-          priceCtx.strokeRect(x0 + 0.5, pad.top + 0.5, Math.max(0, x1 - x0) - 1, ph - pad.top - pad.bottom - 1);
-          priceCtx.restore();
-        }
-      }
-
-      function clampViewToData() {
-        const arr = getData(); if (!arr.length) return;
-        const minT = arr[0].t, maxT = arr[arr.length - 1].t;
-        const span = Math.max(1, view.xMax - view.xMin);
-        if (view.xMin < minT) { view.xMax = Math.min(maxT, view.xMax + (minT - view.xMin)); view.xMin = minT; }
-        if (view.xMax > maxT) { view.xMin = Math.max(minT, view.xMin - (view.xMax - maxT)); view.xMax = maxT; }
-        const minSpan = 60 * 1000; // 1 minute
-        if ((view.xMax - view.xMin) < minSpan) { const mid = (view.xMin + view.xMax) / 2; view.xMin = mid - minSpan / 2; view.xMax = mid + minSpan / 2; }
-      }
-
-      function onWheel(e, canvas) {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
-        const alpha = Math.min(1, Math.max(0, (x - pad.left) / inner));
-        const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
-        const span = Math.max(1, view.xMax - view.xMin);
-        const newSpan = span * factor;
-        const newMin = view.xMin + (span - newSpan) * alpha;
-        const newMax = newMin + newSpan;
-        view.xMin = newMin; view.xMax = newMax;
-        clampViewToData();
-        render();
-      }
-      function onMouseDown(e) {
-        const rect = priceCanvas.getBoundingClientRect();
-        if (e.ctrlKey) {
-          view.zooming = true; view.zoomRectStartX = e.clientX - rect.left; view.zoomRectEndX = view.zoomRectStartX; render();
-        } else {
-          view.panning = true; view.panStartPx = e.clientX; view.panRange = [view.xMin, view.xMax];
-        }
-      }
-      function onMouseMove(e, canvas) {
-        const rect = canvas.getBoundingClientRect();
-        if (view.zooming) {
-          view.zoomRectEndX = e.clientX - rect.left; render();
-        } else if (view.panning) {
-          const dx = e.clientX - view.panStartPx;
-          const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
-          const span = (view.panRange[1] - view.panRange[0]);
-          const dt = -dx / inner * span;
-          view.xMin = view.panRange[0] + dt; view.xMax = view.panRange[1] + dt;
-          clampViewToData(); render();
-        } else {
-          view.cross.active = true; view.cross.x = e.clientX - rect.left; view.cross.y = e.clientY - rect.top; render();
-        }
-      }
-      function onMouseUp() {
-        if (view.zooming) {
-          const rect = priceCanvas.getBoundingClientRect();
-          const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
-          const x0 = Math.min(view.zoomRectStartX, view.zoomRectEndX);
-          const x1 = Math.max(view.zoomRectStartX, view.zoomRectEndX);
-          if (x1 - x0 > 6) {
-            const alpha0 = Math.min(1, Math.max(0, (x0 - pad.left) / inner));
-            const alpha1 = Math.min(1, Math.max(0, (x1 - pad.left) / inner));
-            const span = Math.max(1, view.xMax - view.xMin);
-            const newMin = view.xMin + span * Math.min(alpha0, alpha1);
-            const newMax = view.xMin + span * Math.max(alpha0, alpha1);
-            view.xMin = newMin; view.xMax = newMax; clampViewToData();
-          }
-          view.zooming = false; render();
-        }
-        view.panning = false;
-      }
-      function onLeave() { view.panning = false; view.zooming = false; view.cross.active = false; render(); }
-      function fitToData() { const arr = getData(); if (arr.length >= 2) { view.xMin = arr[0].t; view.xMax = arr[arr.length - 1].t; render(); } }
-      function zoomInAt(xPx) {
-        const rect = priceCanvas.getBoundingClientRect();
-        const pad = view.padding; const w = rect.width; const inner = Math.max(1, w - pad.left - pad.right);
-        const alpha = Math.min(1, Math.max(0, (xPx - pad.left) / inner));
-        const span = Math.max(1, view.xMax - view.xMin);
-        const factor = 0.5; // zoom in 2x
-        const newSpan = span * factor;
-        const newMin = view.xMin + (span - newSpan) * alpha;
-        view.xMin = newMin; view.xMax = newMin + newSpan; clampViewToData(); render();
-      }
-
-      priceCanvas.addEventListener('wheel', (e) => onWheel(e, priceCanvas), { passive: false });
-      volumeCanvas.addEventListener('wheel', (e) => onWheel(e, volumeCanvas), { passive: false });
-      priceCanvas.addEventListener('mousedown', onMouseDown);
-      priceCanvas.addEventListener('mousemove', (e) => onMouseMove(e, priceCanvas));
-      priceCanvas.addEventListener('mouseup', onMouseUp);
-      priceCanvas.addEventListener('mouseleave', onLeave);
-  priceCanvas.addEventListener('dblclick', (e) => { if (e.shiftKey) fitToData(); else zoomInAt(e.clientX - priceCanvas.getBoundingClientRect().left); });
-      window.addEventListener('resize', () => render());
-
-      // Initial fit
-      const arr = getData(); if (arr.length >= 2) { view.xMin = arr[0].t; view.xMax = arr[arr.length - 1].t; }
-      render();
-      state._render = render;
-    }
-
-    function pushPricePoint(symbol, price, ts, volume) {
-      if (!state.history[symbol]) state.history[symbol] = [];
-      const arr = state.history[symbol];
-      arr.push({ t: ts, price, volume });
-      const MAX_POINTS = 2000; if (arr.length > MAX_POINTS) arr.shift();
-      if (state.openingPrice[symbol] === undefined) { state.openingPrice[symbol] = price; }
-      state.prices[symbol] = price; state.volumes[symbol] = volume;
-      if (state._render && symbol === state.primarySymbol) state._render();
-    }
-
-    function setPrimary(sym) {
-      if (!sym) return;
-      state.primarySymbol = sym;
-      state.selected = new Set([sym]);
-      // Rebuild datasets for single symbol
-      initChart();
-      // Seed and start polling will continue to push updates
-      seedHistory([sym]).catch(()=>{});
-      renderSummaryTiles();
-  renderCatalogList();
-    }
-
-    function renderSummaryTiles() {
-      summaryPanel.innerHTML = '';
-      state.selected.forEach(sym => {
-        const price = state.prices[sym];
-        const open = state.openingPrice[sym] ?? price;
-        const delta = price != null && open != null ? price - open : 0;
-        const deltaPct = (open !== 0 && price != null) ? (delta / open) * 100 : 0;
-        const tile = document.createElement('div');
-        tile.className = 'statTile';
-        tile.style.borderLeft = `4px solid ${state.colorsBySymbol[sym] || '#fff'}`;
-        tile.innerHTML = `
-          <div class="label" style="font-size:.75rem; color:var(--muted)">${sym}</div>
-          <div class="value" aria-label="Current price">${fmt(price)}</div>
-          <div style="font-size:.75rem; color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">
-            ${delta >= 0 ? '▲' : delta < 0 ? '▼' : '•'} ${fmt(delta)} (${fmt(deltaPct)}%)
-          </div>
-          <div style="font-size:.7rem; color:var(--muted)">${state.volumes[sym] ?? 0} vol</div>
-        `;
-        summaryPanel.appendChild(tile);
-      });
-    }
-
-    // == REAL-TIME FEED (REAL OR MOCK) ==
-  class RealTimeProvider {
-      constructor(url, apiKey) {
-        this.url = url; this.apiKey = apiKey; this.ws = null;
-        this.callbacks = []; this.subscribed = new Set();
-        this.shouldReconnect = true; this.reconnectDelay = 1000;
-      }
-      connect() { /* ... truncated for brevity ... */ }
-      get selectedSymbols() { return Array.from(state.selected); }
-      subscribe(symbols) { /* ... truncated for brevity ... */ }
-      onMessage(cb) { this.callbacks.push(cb); }
-      reconnect() { if (!this.shouldReconnect) return; setTimeout(() => this.connect(), this.reconnectDelay); }
-      close() { this.shouldReconnect = false; if (this.ws) this.ws.close(); }
-    }
-
-
-    // == DATA FETCH (Yahoo Finance)
-    async function fetchYahooFinanceQuotes(symbols) {
-      if (!symbols || symbols.length === 0) return {};
-      const joined = symbols.map(encodeURIComponent).join(',');
-      const onGithubPages = /\.github\.io$/i.test(location.hostname);
-      // Prefer proxy when configured (recommended for GH Pages/static hosting)
-      if (CONFIG.YAHOO_PROXY) {
-        try {
-          const proxiedUrl = `${CONFIG.YAHOO_PROXY}/v7/finance/quote?symbols=${joined}`;
-          const resp = await fetch(proxiedUrl, { cache: 'no-cache' });
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const data = await resp.json();
-          // Expecting the worker to return Yahoo's JSON shape
-          const results = data.quoteResponse?.result || [];
-          const out = {};
-          for (const r of results) {
-            if (r && r.symbol && r.regularMarketPrice != null) {
-              out[r.symbol] = {
-                price: r.regularMarketPrice,
-                volume: r.regularMarketVolume || 0,
-                ts: Date.now()
-              };
-            }
-          }
-          return out;
-        } catch (e) {
-          console.warn('Yahoo (proxied) fetch error:', e);
-          return {};
-        }
-      }
-
-      // If no proxy and running on GitHub Pages, skip direct Yahoo to avoid noisy CORS errors
-      if (onGithubPages) {
-        console.info('Skipping direct Yahoo fetch on GitHub Pages (CORS). Configure CONFIG.YAHOO_PROXY to enable.');
-        return {};
-      }
-
-      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
-      try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        const results = data.quoteResponse?.result || [];
-        const out = {};
-        for (const r of results) {
-          if (r && r.symbol && r.regularMarketPrice != null) {
-            out[r.symbol] = {
-              price: r.regularMarketPrice,
-              volume: r.regularMarketVolume || 0,
-              ts: Date.now()
-            };
-          }
-        }
-        return out;
-      } catch (e) {
-        console.warn('Yahoo (direct) fetch error:', e);
-        return {};
-      }
-    }
-
-    // Fetch intraday history for seeding the chart (range: 1d, interval: 1m)
-    async function fetchYahooChartHistory(symbol, range = '1d', interval = '1m') {
-      const onGithubPages = /\.github\.io$/i.test(location.hostname);
-      let url = '';
-      if (CONFIG.YAHOO_PROXY) {
-        url = `${CONFIG.YAHOO_PROXY}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
-      } else if (!onGithubPages) {
-        url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
-      } else {
-  return await tryLoadLocalChart(symbol, range, interval);
-      }
-      try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        const res = data?.chart?.result?.[0];
-        if (!res) return null;
-        const ts = res.timestamp || [];
-        const quote = res.indicators?.quote?.[0] || {};
-        const closes = quote.close || [];
-        const volumes = quote.volume || [];
-        const points = [];
-        for (let i = 0; i < ts.length; i++) {
-          const p = closes[i];
-          if (p == null || Number.isNaN(p)) continue;
-          points.push({ t: ts[i] * 1000, price: p, volume: volumes?.[i] ?? 0 });
-        }
-        return points;
-      } catch (e) {
-        console.warn('Yahoo chart history fetch error:', e);
-        // Same-origin fallback: look for pre-fetched JSON under /data
-        return await tryLoadLocalChart(symbol, range, interval);
-      }
-    }
-
-    // == DATA FETCH (Finnhub)
-    // Map UI ranges to Finnhub resolution and lookback window (in seconds)
-    function rangeToFinnhub(rangeKey) {
-      switch (rangeKey) {
-        case '30m': return { resolution: '1', lookbackSec: 60 * 60 };
-        case '5h': return { resolution: '5', lookbackSec: 12 * 60 * 60 };
-        case '12h': return { resolution: '15', lookbackSec: 36 * 60 * 60 };
-        case '1d': return { resolution: '1', lookbackSec: 36 * 60 * 60 };
-        case '5d': return { resolution: '5', lookbackSec: 7 * 24 * 60 * 60 };
-        case '1w': return { resolution: '15', lookbackSec: 14 * 24 * 60 * 60 };
-        case '1mo': return { resolution: '60', lookbackSec: 60 * 24 * 60 * 60 };
-        case '6mo': return { resolution: 'D', lookbackSec: 220 * 24 * 60 * 60 };
-        case '1y': return { resolution: 'D', lookbackSec: 400 * 24 * 60 * 60 };
-        case 'max': return { resolution: 'W', lookbackSec: 5 * 365 * 24 * 60 * 60 };
-        default: return { resolution: '1', lookbackSec: 36 * 60 * 60 };
-      }
-    }
-
-    async function fetchFinnhubQuote(symbol) {
-      if (!CONFIG.FINNHUB_TOKEN) return {};
-      const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(CONFIG.FINNHUB_TOKEN)}`;
-      try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        // Shape: { c: current, pc: previousClose, t: epochSec, ... }
-        if (data && typeof data.c === 'number') {
-          const ts = (data.t ? data.t * 1000 : Date.now());
-          return { [symbol]: { price: data.c, volume: 0, ts, prevClose: data.pc } };
-        }
-      } catch (e) {
-        console.warn('Finnhub quote fetch error:', e);
-      }
-      return {};
-    }
-
-    async function fetchFinnhubHistory(symbol, rangeKey) {
-      if (!CONFIG.FINNHUB_TOKEN) return null;
-      const { resolution, lookbackSec } = rangeToFinnhub(rangeKey);
-      const to = Math.floor(Date.now() / 1000);
-      const from = to - lookbackSec;
-      const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}&from=${from}&to=${to}&token=${encodeURIComponent(CONFIG.FINNHUB_TOKEN)}`;
-      try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        if (!data || data.s !== 'ok') return null;
-        const t = data.t || [], c = data.c || [], v = data.v || [];
-        const points = [];
-        for (let i = 0; i < t.length; i++) {
-          const price = c[i]; if (price == null || Number.isNaN(price)) continue;
-          points.push({ t: t[i] * 1000, price, volume: v?.[i] ?? 0 });
-        }
-        return points;
-      } catch (e) {
-        console.warn('Finnhub history fetch error:', e);
-        return null;
-      }
-    }
-
-    // Fallback loader for blocked networks: serves files committed under /data
-    async function tryLoadLocalChart(symbol, range, interval) {
-      const tryPaths = [
-        `/data/chart-${encodeURIComponent(symbol)}-${encodeURIComponent(range)}-${encodeURIComponent(interval)}.json`,
-        `/data/chart-${encodeURIComponent(symbol)}-${encodeURIComponent(range)}.json`,
-        `/data/chart-${encodeURIComponent(symbol)}.json`
-      ];
-      for (const p of tryPaths) {
-        try {
-          const r = await fetch(p, { cache: 'no-cache' });
-          if (!r.ok) continue;
-          const data = await r.json();
-          // Expect [{ t: epochMs, price: number, volume: number }, ...]
-          if (Array.isArray(data) && data.length) return data;
-        } catch {}
-      }
-      return null;
-    }
-
-    // Map UI ranges to Yahoo range/interval
-    function rangeToYahoo(rangeKey) {
-      switch (rangeKey) {
-        case '30m': return { range: '1d', interval: '1m' };
-        case '5h': return { range: '1d', interval: '5m' };
-        case '12h': return { range: '5d', interval: '15m' };
-        case '1d': return { range: '1d', interval: '1m' };
-        case '5d': return { range: '5d', interval: '5m' };
-        case '1w': return { range: '5d', interval: '15m' };
-        case '1mo': return { range: '1mo', interval: '1h' };
-        case '6mo': return { range: '6mo', interval: '1d' };
-        case '1y': return { range: '1y', interval: '1d' };
-        case 'max': return { range: 'max', interval: '1wk' };
-        default: return { range: '1d', interval: '1m' };
-      }
-    }
-
-  function setConnectionStatus(kind, text) {
-      if (!connBadge) return;
-      connBadge.classList.remove('conn-ok','conn-demo','conn-err');
-      if (kind === 'live') connBadge.classList.add('conn-ok');
-      else if (kind === 'demo') connBadge.classList.add('conn-demo');
-      else connBadge.classList.add('conn-err');
-      connBadge.textContent = text;
-    }
-
-  function startYahooFinanceFeed() {
-      const onGithubPages = /\.github\.io$/i.test(location.hostname);
-      if (onGithubPages && !CONFIG.YAHOO_PROXY) {
-        // On GitHub Pages without a proxy, skip cross-origin polling and rely on /data static JSON
-        setConnectionStatus('demo','Static');
-        return;
-      }
-      // Store last fetched prices
-      let lastPrices = {};
-      let lastVolumes = {};
-      let lastTimestamps = {};
-      let noDataCount = 0;
-  // If we are on GH Pages and no proxy configured, keep running without banner; data may be empty
-  // Poll Yahoo Finance every 1 second (per user requirement)
-      async function poll() {
-        const syms = Array.from(state.selected);
-        const batch = await fetchYahooFinanceQuotes(syms);
-        let gotAny = Object.keys(batch).length > 0;
-        for (const sym of syms) {
-          const result = batch[sym];
-          if (result && !isNaN(result.price)) {
-            lastPrices[sym] = result.price;
-            lastVolumes[sym] = result.volume;
-            lastTimestamps[sym] = result.ts;
-            pushPricePoint(sym, result.price, result.ts, result.volume);
-          }
-        }
-        if (!gotAny && state.primarySymbol) {
-          // Fallback: refresh from chart endpoint
-          loadRangeForPrimary(state.activeRange);
-        }
-  if (gotAny) {
-          noDataCount = 0;
-          // If demo was running, stop it
-          if (state._mock) { try { state._mock.stop(); } catch {} state._mock = null; state.isMock = false; state._demoStarted = false; }
-          setConnectionStatus('live','Live');
-        } else {
-          noDataCount++;
-          if (!onGithubPages) {
-            if (noDataCount >= 4 && !state.isMock) setConnectionStatus('error','Blocked');
-            if (noDataCount >= 8 && !state._demoStarted) {
-              // Auto-switch to demo after prolonged blocking
-              startDemoFeed('blocked');
-            }
-          }
-        }
-        // No banner; keep retrying silently
-  setTimeout(poll, 1000); // 1 second
-      }
-      poll();
-
-      // Update UI every second with the latest known prices.
-      // Avoid duplicate points: only synth-push if we didn't just receive a quote recently.
-      setInterval(() => {
-        const syms = Array.from(state.selected);
-        const now = Date.now();
-        syms.forEach(sym => {
-          const lastTs = lastTimestamps[sym] || 0;
-          if (lastPrices[sym] !== undefined && (now - lastTs) >= 900) {
-            // Push the last known price only if we haven't had a fresh quote recently
-            pushPricePoint(sym, lastPrices[sym], now, lastVolumes[sym]);
-          }
-        });
-  updateLivePricesUI();
-      }, 1000);
-    }
-
-    function startFinnhubFeed() {
-      let noDataCount = 0;
-      async function poll() {
-        const sym = state.primarySymbol;
-        if (!sym || !CONFIG.FINNHUB_TOKEN) { noDataCount++; if (noDataCount >= 4 && !state.isMock) setConnectionStatus('error','Blocked'); if (noDataCount >= 8 && !state._demoStarted) startDemoFeed('no-token'); setTimeout(poll, 1000); return; }
-        try {
-          const res = await fetchFinnhubQuote(sym);
-          const payload = res[sym];
-          if (payload && !isNaN(payload.price)) {
-            // Set opening from prevClose when available
-            if (state.openingPrice[sym] == null && payload.prevClose != null) state.openingPrice[sym] = payload.prevClose;
-            pushPricePoint(sym, payload.price, payload.ts, payload.volume || 0);
-            setConnectionStatus('live','Live');
-            noDataCount = 0;
-          } else {
-            noDataCount++;
-          }
-        } catch (e) {
-          console.warn('Finnhub poll error:', e);
-          noDataCount++;
-        }
-        if (noDataCount >= 4 && !state.isMock) setConnectionStatus('error','Blocked');
-        if (noDataCount >= 8 && !state._demoStarted) startDemoFeed('blocked');
-        updateLivePricesUI();
-        setTimeout(poll, 1000); // 1 second cadence
-      }
-      poll();
-    }
-
-    // Restore MockRealTimeProvider for fallback demo mode
-    class MockRealTimeProvider {
-      constructor(symbols, onTick) { this.symbols = symbols; this.onTick = onTick; this.interval = null; }
-      start() {
-        this.symbols.forEach(sym => {
-          if (state.prices[sym] == null) {
-            state.prices[sym] = 50 + Math.random() * 50;
-            state.openingPrice[sym] = state.prices[sym];
-          }
-        });
-        this.interval = setInterval(() => {
-          const ts = Date.now();
-          this.symbols.forEach(sym => {
-            const last = state.prices[sym] ?? 50;
-            const delta = (Math.random() - 0.5) * 0.6;
-            const newPrice = Math.max(0.01, last + delta);
-            const volume = Math.floor(100 + Math.random() * 1000);
-            if (typeof this.onTick === 'function') {
-              this.onTick({ symbol: sym, price: newPrice, ts, volume });
-            }
-          });
-        }, 900);
-      }
-      stop() { if (this.interval) clearInterval(this.interval); }
-    }
-
-    // Show/hide a message if no data is available
-  // No data message removed per request
-
-    // Fallback: Demo feed (mock data)
-    function startDemoFeed(reason) {
-      if (state._demoStarted) return;
-      state._demoStarted = true;
-      bootstrapChart();
-      const mock = new MockRealTimeProvider(Array.from(state.selected), (msg) => {
-        pushPricePoint(msg.symbol, msg.price, msg.ts, msg.volume);
-        updateLivePricesUI();
-      });
-      mock.start();
-      state._mock = mock; state.isMock = true;
-      setConnectionStatus('demo','Demo');
-      renderSummaryTiles();
-    }
-
-    // == UI BINDING: mini chart grid ==
-    function drawMini(canvas, points) {
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d'); if (!ctx) return;
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const rect = canvas.getBoundingClientRect();
-      if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
-        canvas.width = Math.floor(rect.width * dpr); canvas.height = Math.floor(rect.height * dpr);
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const w = rect.width, h = rect.height;
-      ctx.clearRect(0, 0, w, h);
-      if (!points || points.length < 2) return;
-      let min = Infinity, max = -Infinity;
-      for (const p of points) { if (p.price < min) min = p.price; if (p.price > max) max = p.price; }
-      if (!isFinite(min) || !isFinite(max)) return;
-      if (min === max) { min -= 0.5; max += 0.5; }
-      const pad = 4; const innerW = w - pad * 2, innerH = h - pad * 2;
-      const xMin = points[0].t, xMax = points[points.length - 1].t;
-      const xTo = (t) => pad + (t - xMin) / Math.max(1, xMax - xMin) * innerW;
-      const yTo = (y) => pad + (1 - (y - min) / Math.max(1e-9, (max - min))) * innerH;
-      ctx.lineWidth = 1.6;
-      for (let i = 1; i < points.length; i++) {
-        const a = points[i - 1], b = points[i];
-        ctx.strokeStyle = b.price >= a.price ? '#27c782' : '#ff5c5c';
-        ctx.beginPath(); ctx.moveTo(xTo(a.t), yTo(a.price)); ctx.lineTo(xTo(b.t), yTo(b.price)); ctx.stroke();
-      }
-    }
-
-    function renderCatalogList() {
-      if (!miniGridEl) return;
-      miniGridEl.innerHTML = '';
-      CATALOG.forEach(item => {
-        const symbol = item.symbol;
-        const card = document.createElement('div');
-        card.className = 'miniCard' + (state.primarySymbol === symbol ? ' primary' : '');
-        const price = state.prices[symbol];
-        card.innerHTML = `
-          <div class="miniHead">
-            <div class="miniSym">${symbol}</div>
-            <div class="miniPrice" id="latest-${symbol}">${price != null ? fmt(price) : '-'}</div>
-          </div>
-          <canvas class="miniCanvas" height="90"></canvas>
-        `;
-        miniGridEl.appendChild(card);
-        const canvas = card.querySelector('canvas');
-        drawMini(canvas, (state.history[symbol] || []).slice(-120));
-        card.addEventListener('click', () => setPrimary(symbol));
-      });
-    }
-
-  function ensureSymbolDataset(symbol) { /* custom renderer does not need datasets */ }
-
-    function updateLivePricesUI() {
-  renderCatalogList();
-      renderSummaryTiles();
-    }
-
-    function buildAIInput() {
-      const current = {};
-      const history = {};
-      const opening = {};
-      const stats = {};
-      state.selected.forEach(sym => {
-        current[sym] = state.prices[sym] ?? null;
-        history[sym] = state.history[sym] ?? [];
-        opening[sym] = state.openingPrice[sym] ?? null;
-        const last = state.prices[sym] ?? opening[sym] ?? null;
-        const open = opening[sym] ?? last ?? 0;
-        const delta = (last ?? 0) - (open ?? 0);
-        const pct = (open ? delta / open * 100 : 0);
-        stats[sym] = { dailyChange: delta, dailyChangePct: pct };
-      });
-      // Volatility feature
-      const volatilityWindow = 20;
-      const volatility = {};
-      state.selected.forEach(sym => {
-        const hist = history[sym];
-        const len = hist.length;
-        const window = hist.slice(Math.max(0, len - volatilityWindow), len);
-        const prices = window.map(p => p.price);
-        if (prices.length >= 2) {
-          const mean = prices.reduce((a,b)=>a+b,0)/prices.length;
-          const varr = prices.reduce((acc,p)=> acc + (p-mean)*(p-mean), 0) / (prices.length-1);
-          volatility[sym] = Math.sqrt(varr);
-        } else {
-          volatility[sym] = 0;
-        }
-      });
-      return { current, history, opening, stats, features: { volatility } };
-    }
-
-    function downloadAIData() {
-      const aiInput = buildAIInput();
-      const blob = new Blob([JSON.stringify(aiInput, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ai_input_live_asx.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-    exportAiBtn.addEventListener('click', () => {
-      downloadAIData();
-    });
-
-  // Compare controls removed
-
-    // == INITIALIZATION ==
-  function bootstrapChart() { initChart(); }
-    renderCatalogList();
-
-    // Simple client-side password gate (note: not secure; use server auth for real protection)
-    const PASSWORD = 'acer'; // change this to your desired password
-    let authed = false;
-    async function unlockIfValid() {
-      const input = document.getElementById('authPassword');
-      const err = document.getElementById('authError');
-      const val = (input?.value || '').trim();
-      if (!val) { err.style.display = 'block'; return; }
-      if (val === PASSWORD) {
-        authed = true;
-        document.getElementById('authOverlay').style.display = 'none';
-        // optionally remember session
-        try { sessionStorage.setItem('asx_authed', '1'); } catch {}
-        init();
-      } else {
-        err.style.display = 'block';
-      }
-    }
-
-    async function seedHistory(symbols) {
-    // Seed chart with intraday points for smoother initial UX
-      const tasks = symbols.map(async (sym) => {
-        try {
-          const points = await fetchYahooChartHistory(sym, '1d', '1m');
-          if (!points || points.length === 0) return;
-      state.history[sym] = points.slice();
-      if (state.openingPrice[sym] == null && points[0]) state.openingPrice[sym] = points[0].price;
-      state.prices[sym] = points[points.length - 1].price;
-      state.volumes[sym] = points[points.length - 1].volume;
-        } catch {}
-      });
-      await Promise.allSettled(tasks);
-    if (state._render) state._render();
-      renderSummaryTiles();
-    }
-
-    async function loadRangeForPrimary(rangeKey) {
-      const sym = state.primarySymbol;
-      try {
-        let points = null;
-        if (CONFIG.PROVIDER === 'finnhub') {
-          points = await fetchFinnhubHistory(sym, rangeKey);
-        } else {
-          const { range, interval } = rangeToYahoo(rangeKey);
-          points = await fetchYahooChartHistory(sym, range, interval);
-        }
-        if (!points || points.length === 0) return;
-        state.history[sym] = points.slice();
-        state.prices[sym] = points[points.length - 1].price;
-        state.volumes[sym] = points[points.length - 1].volume;
-        if (!state._view) state._view = {};
-        state._view.xMin = points[0].t; state._view.xMax = points[points.length - 1].t;
-        if (state._render) state._render();
-        renderSummaryTiles();
-        const onGithubPages = /\.github\.io$/i.test(location.hostname);
-        if (!CONFIG.YAHOO_PROXY && onGithubPages && CONFIG.PROVIDER === 'yahoo') {
-          setConnectionStatus('demo','Static');
-        }
-      } catch {}
-    }
-
-    function loadSavedConfig() {
-      try {
-        const saved = localStorage.getItem('asx_yahoo_proxy');
-  if (saved && saved.trim() !== '') CONFIG.YAHOO_PROXY = saved;
-        const prov = localStorage.getItem('asx_provider');
-        if (prov === 'finnhub' || prov === 'yahoo') CONFIG.PROVIDER = prov;
-        const tok = localStorage.getItem('asx_finnhub_token');
-        if (tok && tok.trim() !== '') CONFIG.FINNHUB_TOKEN = tok.trim();
-      } catch {}
-    }
-
-  function initDataSourceModal() {
-      const modal = document.createElement('div');
-      modal.id = 'dataSourceModal';
-      modal.style.position = 'fixed';
-      modal.style.inset = '0';
-      modal.style.display = 'none';
-      modal.style.alignItems = 'center';
-      modal.style.justifyContent = 'center';
-      modal.style.background = 'rgba(10,12,24,0.8)';
-      modal.style.zIndex = '10001';
-      modal.innerHTML = `
-        <div style="width:560px; max-width:90vw; background: var(--card); border:1px solid var(--grid); border-radius:12px; padding:16px;">
-          <div style="font-weight:700; font-size:1rem; margin-bottom:8px;">Data source settings</div>
-          <div style="display:grid; gap:10px;">
-            <div>
-              <div style="font-size:.85rem; color:var(--muted); margin-bottom:6px;">Provider</div>
-              <div style="display:flex; gap:8px;">
-                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                  <input type="radio" name="provider" id="provYahoo" value="yahoo"> Yahoo (via proxy)
-                </label>
-                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                  <input type="radio" name="provider" id="provFinnhub" value="finnhub"> Finnhub (direct)
-                </label>
-              </div>
-            </div>
-            <div id="yahooFields">
-              <div style="font-size:.85rem; color:var(--muted); margin-bottom:6px;">Yahoo proxy base URL</div>
-              <input id="proxyInput" type="text" placeholder="https://your-worker.example.workers.dev" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--grid); background:#0a1130; color:var(--text);" />
-              <div style="margin-top:6px; font-size:.8rem; color:var(--muted);">
-                Must mirror Yahoo paths (/v7/finance/quote and /v8/finance/chart). Add proper CORS headers.
-              </div>
-            </div>
-            <div id="finnhubFields">
-              <div style="font-size:.85rem; color:var(--muted); margin-bottom:6px;">Finnhub API token</div>
-              <input id="finnhubTokenInput" type="text" placeholder="Finnhub token" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--grid); background:#0a1130; color:var(--text);" />
-              <div style="margin-top:6px; font-size:.8rem; color:var(--muted);">
-                Token is required for per-second quotes and history. Sign up at finnhub.io.
-              </div>
-            </div>
-          </div>
-          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-            <button id="proxyCancel" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#0a0f2a; color:var(--text); cursor:pointer">Cancel</button>
-            <button id="proxySave" style="padding:8px 12px; border-radius:6px; border:1px solid var(--grid); background:#143; color:#c8facc; cursor:pointer; font-weight:700">Save</button>
-          </div>
-        </div>`;
-      document.body.appendChild(modal);
-
-      const open = () => {
-        const input = modal.querySelector('#proxyInput');
-        const tok = modal.querySelector('#finnhubTokenInput');
-        const provYahoo = modal.querySelector('#provYahoo');
-        const provFinn = modal.querySelector('#provFinnhub');
-        input.value = CONFIG.YAHOO_PROXY || '';
-        tok.value = CONFIG.FINNHUB_TOKEN || '';
-        if (CONFIG.PROVIDER === 'finnhub') provFinn.checked = true; else provYahoo.checked = true;
-        updateFieldsVisibility();
-        modal.style.display = 'flex';
-        (CONFIG.PROVIDER === 'finnhub' ? tok : input).focus();
-      };
-      const close = () => { modal.style.display = 'none'; };
-      dataSourceBtn?.addEventListener('click', open);
-      function updateFieldsVisibility() {
-        const yf = modal.querySelector('#yahooFields');
-        const ff = modal.querySelector('#finnhubFields');
-        const prov = modal.querySelector('input[name="provider"]:checked')?.value || 'yahoo';
-        yf.style.display = prov === 'yahoo' ? 'block' : 'none';
-        ff.style.display = prov === 'finnhub' ? 'block' : 'none';
-      }
-      modal.querySelectorAll('input[name="provider"]').forEach(el => el.addEventListener('change', updateFieldsVisibility));
-      modal.querySelector('#proxyCancel')?.addEventListener('click', close);
-      modal.querySelector('#proxySave')?.addEventListener('click', () => {
-        const prov = modal.querySelector('input[name="provider"]:checked')?.value || 'yahoo';
-        CONFIG.PROVIDER = prov;
-        try { localStorage.setItem('asx_provider', prov); } catch {}
-        const val = modal.querySelector('#proxyInput').value.trim().replace(/\/$/, '');
-        CONFIG.YAHOO_PROXY = val;
-        try { localStorage.setItem('asx_yahoo_proxy', val); } catch {}
-        const tok = modal.querySelector('#finnhubTokenInput').value.trim();
-        CONFIG.FINNHUB_TOKEN = tok;
-        try { localStorage.setItem('asx_finnhub_token', tok); } catch {}
-        close();
-      });
-    }
-
-    async function init() {
-      loadSavedConfig();
-      bootstrapChart();
-      // Primary-only model
-      if (!state.primarySymbol) state.primarySymbol = Array.from(state.selected)[0] || 'BHP.AX';
-      state.selected = new Set([state.primarySymbol]);
-      initChart();
-  setConnectionStatus('error','Connecting…');
-      // Range selector
-      const rangeGroup = document.getElementById('rangeGroup');
-      if (rangeGroup) {
-        rangeGroup.addEventListener('click', (e) => {
-          const btn = e.target.closest('button');
-          if (!btn) return;
-          Array.from(rangeGroup.querySelectorAll('button')).forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          const key = btn.getAttribute('data-range');
-          if (key) { state.activeRange = key; loadRangeForPrimary(key); }
-        });
-      }
-      // Seed if possible; non-blocking start of live feed
-      const defaultRangeKey = '30m';
-      state.activeRange = defaultRangeKey;
-      loadRangeForPrimary(defaultRangeKey).finally(() => {
-        if (CONFIG.PROVIDER === 'finnhub') startFinnhubFeed(); else startYahooFinanceFeed();
-      });
-      // Periodic refresh via chart endpoint as a fallback if quotes fail
-      setInterval(() => {
-        if (state.primarySymbol) loadRangeForPrimary(state.activeRange);
-      }, 30000);
-    }
-
-    window.addEventListener('load', () => {
-  initDataSourceModal();
-      try { if (sessionStorage.getItem('asx_authed') === '1') { authed = true; document.getElementById('authOverlay').style.display = 'none'; init(); return; } } catch {}
-      const btn = document.getElementById('authSubmit');
-      const inp = document.getElementById('authPassword');
-      btn?.addEventListener('click', unlockIfValid);
-      inp?.addEventListener('keydown', (e) => { if (e.key === 'Enter') unlockIfValid(); });
-    });
-  // Search removed; mini grid updates automatically
-    // To use a real provider, swap out startDemoFeed as documented in the original code.
-  </script>
-</body>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>ASX Check – Prices + AI Overview</title>
+		<meta name="description" content="Enter ASX tickers to see live prices (no charts), get an AI-style overview (rise/fall/neutral), and simple recommendations." />
+		<style>
+			:root {
+				--bg: #0f172a; /* slate-900 */
+				--card: #111827; /* gray-900 */
+				--muted: #94a3b8; /* slate-400 */
+				--text: #e5e7eb; /* gray-200 */
+				--accent: #22d3ee; /* cyan-400 */
+				--positive: #22c55e; /* green-500 */
+				--negative: #ef4444; /* red-500 */
+				--warning: #f59e0b; /* amber-500 */
+				--chip: #1f2937; /* gray-800 */
+				--border: #1f2937;
+			}
+			* { box-sizing: border-box; }
+			html, body { height: 100%; }
+			body {
+				margin: 0;
+				font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
+					Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+				background: linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
+				color: var(--text);
+			}
+			header {
+				padding: 24px 16px;
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				max-width: 1080px;
+				margin: 0 auto;
+			}
+			.title {
+				display: flex; gap: 12px; align-items: center;
+			}
+			.title h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+			.badge { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+			main { max-width: 1080px; margin: 0 auto; padding: 0 16px 48px; }
+			.card {
+				background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+				border: 1px solid var(--border);
+				border-radius: 16px;
+				padding: 16px;
+				box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+			}
+			.row { display: flex; flex-wrap: wrap; gap: 16px; }
+			.grow { flex: 1 1 auto; }
+			.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+			input[type="text"] {
+				background: #0b1020;
+				color: var(--text);
+				border: 1px solid var(--border);
+				border-radius: 10px;
+				padding: 10px 12px;
+				outline: none;
+				min-width: 260px;
+			}
+			button {
+				background: linear-gradient(180deg, #22d3ee, #06b6d4);
+				color: #002331;
+				border: none;
+				border-radius: 10px;
+				padding: 10px 14px;
+				font-weight: 700;
+				cursor: pointer;
+			}
+			button.secondary { background: #111827; color: var(--text); border: 1px solid var(--border); }
+			.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+			.chip { background: var(--chip); border: 1px solid var(--border); padding: 6px 10px; border-radius: 999px; display: inline-flex; gap: 8px; align-items: center; }
+			.chip button { background: transparent; color: var(--muted); border: none; padding: 0; cursor: pointer; }
+			.muted { color: var(--muted); }
+			.grid { display: grid; gap: 12px; margin-top: 16px; }
+			@media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+			@media (min-width: 980px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+			.stock {
+				background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+				border: 1px solid var(--border);
+				border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+			}
+			.stock-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+			.ticker { font-weight: 800; letter-spacing: 0.6px; }
+			.name { color: var(--muted); font-size: 13px; }
+			.price-row { display: flex; align-items: center; justify-content: space-between; }
+			.price { font-size: 22px; font-weight: 800; }
+			.chg { font-weight: 700; }
+			.chg.up { color: var(--positive); }
+			.chg.down { color: var(--negative); }
+			.tiny { font-size: 12px; color: var(--muted); }
+			.ai { background: #0b1020; border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
+			.ai strong { font-weight: 800; }
+			.ai .rise { color: var(--positive); }
+			.ai .fall { color: var(--negative); }
+			.ai .neutral { color: var(--warning); }
+			.section-title { margin: 20px 0 10px; font-size: 18px; font-weight: 800; letter-spacing: 0.3px; }
+			.footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center; }
+			.error { color: var(--negative); font-size: 13px; }
+			.warn { color: var(--warning); font-size: 13px; }
+			.loading { color: var(--muted); font-size: 13px; }
+			.pill { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+			.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+			a { color: var(--accent); text-decoration: none; }
+		</style>
+	</head>
+	<body>
+		<header>
+			<div class="title">
+				<svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+					<path d="M3 17l5-5 4 4 7-7" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+					<circle cx="4" cy="17" r="2" fill="#22d3ee"/>
+					<circle cx="8" cy="13" r="2" fill="#22d3ee"/>
+					<circle cx="12" cy="17" r="2" fill="#22d3ee"/>
+					<circle cx="19" cy="10" r="2" fill="#22d3ee"/>
+				</svg>
+				<h1>ASX Check</h1>
+				<span class="badge">No charts • Prices + AI overview</span>
+			</div>
+		</header>
+		<main>
+			<section class="card" aria-labelledby="watchlist-title">
+				<h2 id="watchlist-title" class="sr-only">Watchlist</h2>
+				<div class="row" style="align-items: center;">
+					<div class="grow controls">
+						<input id="ticker-input" type="text" placeholder="Add ASX tickers, e.g. BHP.AX, CBA.AX" aria-label="Ticker input" />
+						<button id="add-btn">Add</button>
+						<button class="secondary" id="clear-btn" title="Clear all">Clear</button>
+					</div>
+					<div>
+						<span class="tiny">Tip: Use the .AX suffix. Max 12 tickers.</span>
+					</div>
+				</div>
+				<div id="chips" class="chips" aria-live="polite"></div>
+			</section>
+
+			<section class="card" style="margin-top: 16px;" aria-labelledby="prices-title">
+				<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+					<h2 id="prices-title" class="section-title" style="margin:0;">Prices</h2>
+					<div class="tiny" id="status-msg"></div>
+				</div>
+				<div id="stocks" class="grid" aria-live="polite"></div>
+			</section>
+
+			<section class="card" style="margin-top: 16px;" aria-labelledby="reco-title">
+				<h2 id="reco-title" class="section-title" style="margin:0;">AI-based recommendations</h2>
+				<div id="recos" class="grid"></div>
+			</section>
+
+			<p class="footer">
+				Experimental and informational only. Not financial advice. Data via Yahoo Finance public quote endpoint; may be delayed or unavailable.
+			</p>
+		</main>
+
+		<script>
+			// --- Utilities ---
+			const $ = (sel, el = document) => el.querySelector(sel);
+			const $$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+
+			const DEFAULT_TICKERS = ["BHP.AX", "CBA.AX", "CSL.AX", "NAB.AX", "WES.AX"];
+			const MAX_TICKERS = 12;
+			const STORAGE_KEY = "asxcheck_tickers";
+
+			const state = {
+				tickers: [],
+				quotes: new Map(), // ticker -> quote object
+				scores: new Map(), // ticker -> score
+				errors: new Map(), // ticker -> error message
+			};
+
+			function loadTickers() {
+				try {
+					const raw = localStorage.getItem(STORAGE_KEY);
+					if (raw) {
+						const list = JSON.parse(raw);
+						if (Array.isArray(list) && list.length) return list.slice(0, MAX_TICKERS);
+					}
+				} catch {}
+				return DEFAULT_TICKERS.slice();
+			}
+
+			function saveTickers() {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tickers));
+			}
+
+			function setStatus(msg, type = "") {
+				const el = document.getElementById("status-msg");
+				el.textContent = msg || "";
+				el.className = type ? type : "tiny";
+			}
+
+			function normaliseTicker(t) {
+				if (!t) return "";
+				t = t.trim().toUpperCase();
+				if (!t) return "";
+				// Ensure .AX suffix if missing and looks like ASX code
+				if (!t.endsWith(".AX") && /^[A-Z]{2,4}$/.test(t)) return t + ".AX";
+				return t;
+			}
+
+			function renderChips() {
+				const chips = document.getElementById("chips");
+				chips.innerHTML = "";
+				state.tickers.forEach(t => {
+					const div = document.createElement("div");
+					div.className = "chip";
+					div.innerHTML = `<span>${t}</span> <button aria-label="Remove ${t}">✕</button>`;
+					div.querySelector("button").onclick = () => {
+						state.tickers = state.tickers.filter(x => x !== t);
+						saveTickers();
+						renderChips();
+						refreshQuotes();
+					};
+					chips.appendChild(div);
+				});
+			}
+
+			function renderStocks() {
+				const container = document.getElementById("stocks");
+				container.innerHTML = "";
+				if (state.tickers.length === 0) {
+					const p = document.createElement("p");
+					p.className = "muted";
+					p.textContent = "No tickers. Add ASX codes above to see prices.";
+					container.appendChild(p);
+					return;
+				}
+
+				state.tickers.forEach(ticker => {
+					const q = state.quotes.get(ticker);
+					const err = state.errors.get(ticker);
+
+					const card = document.createElement("div");
+					card.className = "stock";
+
+					const header = document.createElement("div");
+					header.className = "stock-header";
+					header.innerHTML = `<div><span class="ticker">${ticker}</span> <span class="name">${q?.longName || q?.shortName || ""}</span></div>`;
+					card.appendChild(header);
+
+					const body = document.createElement("div");
+					body.className = "price-row";
+
+					if (err) {
+						body.innerHTML = `<div class="error">${err}</div>`;
+					} else if (!q) {
+						body.innerHTML = `<div class="loading">Loading…</div>`;
+					} else {
+						const chg = q.regularMarketChangePercent;
+						const chgClass = chg > 0 ? "up" : chg < 0 ? "down" : "";
+						body.innerHTML = `
+							<div class="price">${fmtPrice(q.regularMarketPrice, q.currency)}</div>
+							<div style="text-align:right">
+								<div class="chg ${chgClass}">${fmtSign(chg)}%</div>
+								<div class="tiny">Prev ${fmtPrice(q.regularMarketPreviousClose, q.currency)}</div>
+							</div>
+						`;
+					}
+					card.appendChild(body);
+
+					const actions = document.createElement("div");
+					actions.style.display = "flex";
+					actions.style.gap = "8px";
+					actions.innerHTML = `<button class="secondary" ${q ? "" : "disabled"}>AI overview</button>`;
+					const btn = actions.querySelector("button");
+					btn.onclick = () => toggleAI(card, ticker);
+					card.appendChild(actions);
+
+					const ai = document.createElement("div");
+					ai.className = "ai";
+					ai.style.display = "none";
+					ai.setAttribute("data-ai", ticker);
+					card.appendChild(ai);
+
+					container.appendChild(card);
+				});
+			}
+
+			function toggleAI(card, ticker) {
+				const ai = card.querySelector('.ai[data-ai="' + ticker + '"]');
+				if (!ai) return;
+				const visible = ai.style.display !== "none";
+				ai.style.display = visible ? "none" : "block";
+				if (!visible) renderAI(ai, ticker);
+			}
+
+			function renderAI(container, ticker) {
+				const q = state.quotes.get(ticker);
+				if (!q) { container.innerHTML = '<span class="loading">Loading…</span>'; return; }
+				const res = aiOverview(q);
+				container.innerHTML = `
+					<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+						<div><strong>AI view:</strong> <span class="${res.className}">${res.label}</span></div>
+						<span class="pill">Score: ${res.score.toFixed(1)}</span>
+					</div>
+					<div class="tiny" style="margin-top:6px;">${res.expl}</div>
+				`;
+			}
+
+					function renderRecommendations() {
+						const recos = document.getElementById("recos");
+						recos.innerHTML = "";
+						if (state.quotes.size === 0) { return; }
+						const items = state.tickers
+							.map(t => {
+								const q = state.quotes.get(t);
+								if (!q) return null;
+								const res = aiOverview(q);
+								return { t, q, res };
+							})
+							.filter(Boolean)
+							.sort((a,b) => b.res.score - a.res.score)
+							.slice(0, 3);
+						if (items.length === 0) {
+							const p = document.createElement("p");
+							p.className = "muted";
+							p.textContent = "No recommendations available yet.";
+							recos.appendChild(p);
+							return;
+						}
+						items.forEach(({ t, q, res }) => {
+							const card = document.createElement("div");
+							card.className = "stock";
+							card.innerHTML = `
+								<div class="stock-header">
+									<div><span class="ticker">${t}</span> <span class="name">${q?.longName || q?.shortName || ""}</span></div>
+									<span class="pill">Score: ${res.score.toFixed(1)}</span>
+								</div>
+								<div class="price-row">
+									<div class="price">${fmtPrice(q.regularMarketPrice, q.currency)}</div>
+									<div class="${q.regularMarketChangePercent>0?"chg up":"chg down"}">${fmtSign(q.regularMarketChangePercent)}%</div>
+								</div>
+								<div class="tiny">${res.expl}</div>
+							`;
+							recos.appendChild(card);
+						});
+					}
+
+			function fmtPrice(value, currency) {
+				if (value == null || !isFinite(value)) return "-";
+				const code = currency || "AUD";
+				try {
+					return new Intl.NumberFormat("en-AU", { style: "currency", currency: code }).format(value);
+				} catch {
+					return `${value.toFixed(2)} ${code}`;
+				}
+			}
+			function fmtSign(num) {
+				if (num == null || !isFinite(num)) return "-";
+				const s = num >= 0 ? "+" : "";
+				return s + num.toFixed(2);
+			}
+
+			// --- AI heuristic ---
+			function aiOverview(q) {
+				const price = n(q.regularMarketPrice);
+				const chgPct = n(q.regularMarketChangePercent);
+				const avg50 = n(q.fiftyDayAverage);
+				const avg200 = n(q.twoHundredDayAverage);
+				const prev = n(q.regularMarketPreviousClose);
+
+				const trend50 = avg50 > 0 ? ((price - avg50) / avg50) * 100 : NaN;
+				const trend200 = avg200 > 0 ? ((price - avg200) / avg200) * 100 : NaN;
+				const momentum = chgPct; // today momentum
+
+				// Weighted score: momentum 0.5, 50d 0.3, 200d 0.2
+				const score = (isFinite(momentum) ? 0.5 * momentum : 0)
+					+ (isFinite(trend50) ? 0.3 * trend50 : 0)
+					+ (isFinite(trend200) ? 0.2 * trend200 : 0);
+
+				let label = "Neutral"; let className = "neutral";
+				if (score > 2) { label = "Expected rise"; className = "rise"; }
+				else if (score < -2) { label = "Expected fall"; className = "fall"; }
+
+				const parts = [];
+				if (isFinite(momentum)) parts.push(`Day momentum ${fmtSign(momentum)}%`);
+				if (isFinite(trend50)) parts.push(`vs 50d ${fmtSign(trend50)}%`);
+				if (isFinite(trend200)) parts.push(`vs 200d ${fmtSign(trend200)}%`);
+				if (isFinite(prev) && isFinite(price)) parts.push(`price ${fmtPrice(price, q.currency)}`);
+				const expl = `${label} based on ${parts.join(", ")}.`;
+
+				// Cache score for recommendations
+				state.scores.set(q.symbol || q.shortName || "?", score);
+				return { score, label, className, expl };
+			}
+			function n(v) { return v == null ? NaN : Number(v); }
+
+			// --- Data fetch ---
+			async function fetchQuotesBatch(symbols) {
+				const endpoint = "https://query1.finance.yahoo.com/v7/finance/quote?symbols="
+					+ encodeURIComponent(symbols.join(","));
+				const res = await fetch(endpoint, { cache: "no-store" });
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const data = await res.json();
+				const list = data?.quoteResponse?.result || [];
+				const bySymbol = new Map(list.map(x => [String(x.symbol).toUpperCase(), x]));
+				return symbols.map(sym => bySymbol.get(sym.toUpperCase()) || null);
+			}
+
+			async function refreshQuotes() {
+				renderChips();
+				renderStocks();
+				setStatus("Fetching prices…", "loading");
+
+				state.quotes.clear();
+				state.scores.clear();
+				state.errors.clear();
+
+				const tickers = state.tickers.slice(0, MAX_TICKERS);
+				if (tickers.length === 0) { setStatus(""); renderRecommendations(); return; }
+
+				// Yahoo supports batching; split into chunks of up to ~10 to be safe
+				const chunks = [];
+				for (let i = 0; i < tickers.length; i += 8) chunks.push(tickers.slice(i, i + 8));
+
+				let anyOk = false; let anyErr = false;
+				for (const group of chunks) {
+					try {
+						const results = await fetchQuotesBatch(group);
+						results.forEach((q, idx) => {
+							const sym = group[idx];
+							if (q && isFinite(Number(q.regularMarketPrice))) {
+								state.quotes.set(sym, q);
+							} else {
+								state.errors.set(sym, "No data returned (check symbol)");
+							}
+						});
+						anyOk = true;
+					} catch (e) {
+						// Fallback: mark errors for this group
+						group.forEach(sym => state.errors.set(sym, "Live data unavailable (CORS or network)"));
+						anyErr = true;
+					}
+				}
+
+				renderStocks();
+				renderRecommendations();
+				if (anyOk && !anyErr) setStatus("Live data loaded.");
+				else if (anyOk && anyErr) setStatus("Partial data loaded; some failed.", "warn");
+				else setStatus("Could not load live data. Try again later.", "error");
+			}
+
+			// --- Event handlers ---
+			function onAddTickers() {
+				const input = document.getElementById("ticker-input");
+				const raw = input.value;
+				const parts = raw.split(/[,\s]+/).map(normaliseTicker).filter(Boolean);
+				input.value = "";
+				if (parts.length === 0) return;
+				const set = new Set(state.tickers);
+				for (const p of parts) {
+					if (set.size >= MAX_TICKERS) break;
+					set.add(p);
+				}
+				state.tickers = Array.from(set).slice(0, MAX_TICKERS);
+				saveTickers();
+				renderChips();
+				refreshQuotes();
+			}
+
+			function onClear() {
+				state.tickers = [];
+				saveTickers();
+				renderChips();
+				refreshQuotes();
+			}
+
+			// --- Init ---
+			function init() {
+				state.tickers = loadTickers();
+				renderChips();
+				renderStocks();
+				refreshQuotes();
+
+				document.getElementById("add-btn").addEventListener("click", onAddTickers);
+				document.getElementById("clear-btn").addEventListener("click", onClear);
+				const input = document.getElementById("ticker-input");
+				input.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") onAddTickers();
+				});
+			}
+
+			document.addEventListener("DOMContentLoaded", init);
+		</script>
+	</body>
 </html>
