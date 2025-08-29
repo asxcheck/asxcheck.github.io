@@ -228,6 +228,17 @@
 							<span class="helper">Use this to avoid CORS and rate limits</span>
 						</div>
 						<div class="settings-grid">
+									<div class="field">
+										<label for="provider">Data Provider</label>
+										<select id="provider" class="input">
+											<option value="yahoo">Yahoo (via proxy)</option>
+											<option value="alpha">Alpha Vantage (API key)</option>
+										</select>
+									</div>
+									<div class="field">
+										<label for="alphaKey">Alpha Vantage API Key</label>
+										<input id="alphaKey" class="input" placeholder="alphavantage key" />
+									</div>
 							<div class="field">
 								<label for="proxyBase">Proxy Base URL</label>
 								<input id="proxyBase" class="input" placeholder="https://asx.asxcheck.workers.dev" />
@@ -295,6 +306,8 @@
 			function load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 			const DEFAULT_LLM = { base: 'https://api.openai.com/v1', model: 'gpt-5', key: '' };
 			function getLlmCfg() { const raw = load('llmCfg', {}); return { ...DEFAULT_LLM, ...raw }; }
+			const DEFAULT_DATA = { provider: 'yahoo', alphaKey: '' };
+			function getDataCfg() { const raw = load('dataCfg', {}); return { ...DEFAULT_DATA, ...raw }; }
 
 			// --- Data fetchers (Yahoo Finance public endpoints) ---
 					// Proxy settings
@@ -312,14 +325,31 @@
 							return base + u.pathname + (u.search || '');
 						} catch { return url; }
 					}
-							async function tryFetchJSON(url, opts = {}, { allowProxyFallback = true } = {}) {
+									async function tryFetchJSON(url, opts = {}, { allowProxyFallback = true } = {}) {
 						const cfg = getProxyCfg();
 						const doFetch = (u) => fetch(u, { cache: 'no-store', ...opts });
 						try {
 							if (cfg?.always && cfg?.base) {
-								const res = await doFetch(wrapProxy(url, cfg));
-								if (!res.ok) throw new Error(await res.text());
-								return await res.json();
+												const primaryUrl = wrapProxy(url, cfg);
+												let res = await doFetch(primaryUrl);
+												if (!res.ok) {
+													const body = await res.text();
+													// If proxy rejected path mode, retry via param mode
+													if (cfg.mode === 'path') {
+														try {
+															const paramUrl = wrapProxy(url, { ...cfg, mode: 'param' });
+															const res2 = await doFetch(paramUrl);
+															if (res2.ok) {
+																// Persist switch to param mode to avoid future errors
+																const nextCfg = { ...cfg, mode: 'param' };
+																save('proxyCfg', nextCfg);
+																return await res2.json();
+															}
+														} catch {}
+													}
+													throw new Error(body);
+												}
+												return await res.json();
 							}
 							const res = await doFetch(url);
 							if (!res.ok) throw new Error(await res.text());
@@ -327,9 +357,20 @@
 						} catch (err) {
 							if (allowProxyFallback && cfg?.base && !cfg?.always) {
 								try {
-									const res2 = await doFetch(wrapProxy(url, cfg));
-									if (!res2.ok) throw new Error(await res2.text());
-									return await res2.json();
+													// First try configured mode
+													let proxied = wrapProxy(url, cfg);
+													let res2 = await doFetch(proxied);
+													if (!res2.ok && cfg.mode === 'path') {
+														// Attempt param as backup
+														const resParam = await doFetch(wrapProxy(url, { ...cfg, mode: 'param' }));
+														if (resParam.ok) {
+															const nextCfg = { ...cfg, mode: 'param' };
+															save('proxyCfg', nextCfg);
+															return await resParam.json();
+														}
+													}
+													if (!res2.ok) throw new Error(await res2.text());
+													return await res2.json();
 								} catch (err2) {
 									throw err2;
 								}
@@ -347,20 +388,60 @@
 								return !!(json && json.finance && json.finance.error && /Unauthorized/i.test(json.finance.error.code || ''));
 							}
 
-							async function fetchQuotes(symbols) {
+									async function fetchQuotes(symbols) {
 								if (!symbols?.length) return [];
-								const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}`;
-								try {
-									const json = await tryFetchJSON(url);
-									return json?.quoteResponse?.result ?? [];
-								} catch (e) {
-									if (isYahooUnauthorizedError(e)) {
-										// Fallback to quoteSummary per symbol
-										return await fetchQuotesViaSummary(symbols);
-									}
-									throw e;
-								}
+										const cfg = getDataCfg();
+										if (cfg.provider === 'alpha') {
+											return await fetchQuotesAlpha(symbols, cfg.alphaKey);
+										}
+										const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}`;
+										try {
+											const json = await tryFetchJSON(url);
+											return json?.quoteResponse?.result ?? [];
+										} catch (e) {
+											if (isYahooUnauthorizedError(e)) {
+												// Fallback to quoteSummary per symbol
+												return await fetchQuotesViaSummary(symbols);
+											}
+											throw e;
+										}
 							}
+
+									async function fetchQuotesAlpha(symbols, apiKey) {
+										if (!apiKey) throw new Error('Alpha Vantage key required');
+										const out = [];
+										// Alpha Vantage free limit is low; fetch sequentially and stop early on rate-limit hints
+										for (const s of symbols) {
+											const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(s)}&apikey=${encodeURIComponent(apiKey)}`;
+											const res = await fetch(url, { cache: 'no-store' });
+											if (!res.ok) throw new Error('Alpha Vantage failed');
+											const json = await res.json();
+											const g = json['Global Quote'];
+											if (!g) continue;
+											const price = parseFloat(g['05. price']);
+											const prev = parseFloat(g['08. previous close']);
+											const changePctStr = g['10. change percent'] || '0%';
+											const changePct = parseFloat(changePctStr) || ((price && prev) ? ((price - prev) / prev * 100) : 0);
+											const high = parseFloat(g['03. high']);
+											const low = parseFloat(g['04. low']);
+											const vol = parseFloat(g['06. volume']);
+											out.push({
+												symbol: s,
+												shortName: s,
+												longName: s,
+												regularMarketPrice: isFinite(price) ? price : null,
+												regularMarketChangePercent: isFinite(changePct) ? changePct : null,
+												marketState: 'REGULAR',
+												marketCap: null,
+												trailingPE: null,
+												forwardPE: null,
+												regularMarketVolume: isFinite(vol) ? vol : null,
+												regularMarketDayLow: isFinite(low) ? low : null,
+												regularMarketDayHigh: isFinite(high) ? high : null,
+											});
+										}
+										return out;
+									}
 
 							async function fetchQuotesViaSummary(symbols) {
 								// Limit concurrency to reduce rate issues
@@ -399,17 +480,21 @@
 								};
 							}
 
-							async function fetchSpark(symbols, range = '5d', interval = '1d') {
+									async function fetchSpark(symbols, range = '5d', interval = '1d') {
 								if (!symbols?.length) return {};
-								const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
-								try {
-									return await tryFetchJSON(url);
-								} catch (e) {
-									if (isYahooUnauthorizedError(e)) {
-										return await fetchSparkViaChart(symbols, range, interval);
-									}
-									throw e;
-								}
+										const cfg = getDataCfg();
+										if (cfg.provider === 'alpha') {
+											return await fetchSparkAlpha(symbols, cfg.alphaKey);
+										}
+										const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
+										try {
+											return await tryFetchJSON(url);
+										} catch (e) {
+											if (isYahooUnauthorizedError(e)) {
+												return await fetchSparkViaChart(symbols, range, interval);
+											}
+											throw e;
+										}
 							}
 
 							async function fetchSparkViaChart(symbols, range = '5d', interval = '1d') {
@@ -430,6 +515,31 @@
 								}
 								return out;
 							}
+
+									async function fetchSparkAlpha(symbols, apiKey) {
+										// WARNING: Alpha Vantage rate limits; fetch at most 5 series
+										const out = {};
+										if (!apiKey) return out;
+										const limit = Math.min(5, symbols.length);
+										for (let i = 0; i < limit; i++) {
+											const s = symbols[i];
+											const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(s)}&apikey=${encodeURIComponent(apiKey)}`;
+											try {
+												const res = await fetch(url, { cache: 'no-store' });
+												if (!res.ok) continue;
+												const json = await res.json();
+												const series = json['Time Series (Daily)'];
+												if (!series) { out[s] = { close: [] }; continue; }
+												const closes = Object.entries(series)
+													.slice(0, 7)
+													.reverse()
+													.map(([, v]) => parseFloat(v['4. close']))
+													.filter(x => isFinite(x));
+												out[s] = { close: closes };
+											} catch { out[s] = { close: [] }; }
+										}
+										return out;
+									}
 
 			// --- Rule-based AI-style insight ---
 			function rulesInsight(quote, sparkSeries) {
@@ -537,37 +647,38 @@
 			let currentQuotes = new Map();
 
 			// --- Render ---
-			function renderCards(quotes) {
-				const cont = qs('#cards');
-				cont.innerHTML = '';
-				if (!quotes.length) {
-					cont.innerHTML = '<div class="empty">No symbols. Add tickers like CSL.AX or TLS.AX.</div>';
-					return;
-				}
-				quotes.forEach(q => {
-					const chg = q.regularMarketChangePercent;
-					const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
-					const card = document.createElement('div');
-					card.className = 'card';
-					card.innerHTML = `
-						<div class="ticker">
-							<div class="sym">${q.symbol}</div>
-							<div class="name" title="${q.shortName || q.longName || ''}">${q.shortName || q.longName || ''}</div>
-						</div>
-						<div class="price">
-							<div class="p">${fmtPrice(q.regularMarketPrice)}</div>
-							<div class="chg ${cls}">${chg == null ? '—' : (chg > 0 ? '▲ ' : chg < 0 ? '▼ ' : '') + fmtPctDirect(chg)}</div>
-						</div>
-						<div class="meta">
-							<div class="chip">Mkt cap: ${fmtCap(q.marketCap)}</div>
-							<div class="chip">P/E: ${q.trailingPE?.toFixed ? q.trailingPE.toFixed(2) : '—'}</div>
-							<div class="chip">Vol: ${q.regularMarketVolume ? fmt.format(q.regularMarketVolume) : '—'}</div>
-						</div>
-					`;
-					card.addEventListener('click', () => openDrawer(q.symbol));
-					cont.appendChild(card);
-				});
-			}
+					function renderWatchlist() {
+						const cont = qs('#cards');
+						cont.innerHTML = '';
+						if (!watchlist.length) {
+							cont.innerHTML = '<div class="empty">No symbols. Add tickers like CSL.AX or TLS.AX.</div>';
+							return;
+						}
+						watchlist.forEach(w => {
+							const q = currentQuotes.get(w.symbol);
+							const chg = q?.regularMarketChangePercent;
+							const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
+							const card = document.createElement('div');
+							card.className = 'card';
+							card.innerHTML = `
+								<div class="ticker">
+									<div class="sym">${w.symbol}</div>
+									<div class="name" title="${q?.shortName || q?.longName || w.name || ''}">${q?.shortName || q?.longName || w.name || ''}</div>
+								</div>
+								<div class="price">
+									<div class="p">${fmtPrice(q?.regularMarketPrice)}</div>
+									<div class="chg ${q ? cls : ''}">${q ? (chg == null ? '—' : (chg > 0 ? '▲ ' : chg < 0 ? '▼ ' : '') + fmtPctDirect(chg)) : 'Loading…'}</div>
+								</div>
+								<div class="meta">
+									<div class="chip">Mkt cap: ${fmtCap(q?.marketCap)}</div>
+									<div class="chip">P/E: ${q?.trailingPE?.toFixed ? q.trailingPE.toFixed(2) : '—'}</div>
+									<div class="chip">Vol: ${q?.regularMarketVolume ? fmt.format(q.regularMarketVolume) : '—'}</div>
+								</div>
+							`;
+							card.addEventListener('click', () => openDrawer(w.symbol));
+							cont.appendChild(card);
+						});
+					}
 
 			function renderFooter({ marketState, time }) {
 				qs('#marketState').textContent = `ASX · ${marketState || '—'}`;
@@ -576,18 +687,21 @@
 			}
 
 			// --- Main flow ---
-			async function refreshQuotes() {
+			  async function refreshQuotes() {
 				try {
 					const symbols = watchlist.map(x => x.symbol);
-					const quotes = await fetchQuotes(symbols);
-					// store
-					currentQuotes = new Map(quotes.map(q => [q.symbol, q]));
-					renderCards(quotes);
+				  // optimistic render
+				  renderWatchlist();
+				  const quotes = await fetchQuotes(symbols);
+				  currentQuotes = new Map(quotes.map(q => [q.symbol, q]));
+				  renderWatchlist();
 					const any = quotes[0];
 					renderFooter({ marketState: any?.marketState, time: new Date().toLocaleString() });
 				} catch (e) {
 					console.error(e);
-					qs('#cards').innerHTML = `<div class="empty">Failed to load quotes. ${e?.message || e}</div>`;
+				  // Keep showing placeholders but annotate error subtly in footer
+				  renderWatchlist();
+				  qs('#lastUpdated').textContent = 'Load error';
 				}
 			}
 
@@ -653,7 +767,9 @@
 				if (watchlist.some(w => w.symbol.toUpperCase() === symbol.toUpperCase())) return;
 				watchlist.push({ symbol: symbol.toUpperCase(), name: name || symbol.toUpperCase() });
 				persistWatchlist();
-				await refreshQuotes();
+			// Show immediately
+			renderWatchlist();
+			await refreshQuotes();
 			}
 			function resetWatchlist() {
 				watchlist = [...DEFAULT_TICKERS];
@@ -719,10 +835,13 @@
 						qs('#llmBase').value = llm.base || '';
 						qs('#llmModel').value = llm.model || '';
 						qs('#llmKey').value = llm.key || '';
-						const px = getProxyCfg();
+					const px = getProxyCfg();
 						qs('#proxyBase').value = px.base || '';
 						qs('#proxyMode').value = px.mode || 'path';
 						qs('#proxyAlways').checked = !!px.always;
+					const data = getDataCfg();
+					qs('#provider').value = data.provider || 'yahoo';
+					qs('#alphaKey').value = data.alphaKey || '';
 						qs('#settingsStatus').textContent = '';
 					}
 			function closeSettings() { qs('#settingsModal').classList.remove('open'); qs('#settingsModal').setAttribute('aria-hidden', 'true'); }
@@ -730,15 +849,18 @@
 				const base = qs('#llmBase').value.trim();
 				const model = qs('#llmModel').value.trim();
 				const key = qs('#llmKey').value.trim();
-				save('llmCfg', { base, model, key });
+						save('llmCfg', { base, model, key });
 						const pBase = qs('#proxyBase').value.trim();
 						const pMode = qs('#proxyMode').value;
 						const pAlways = qs('#proxyAlways').checked;
 						save('proxyCfg', { base: pBase, mode: pMode, always: pAlways });
+						const provider = qs('#provider').value;
+						const alphaKey = qs('#alphaKey').value.trim();
+						save('dataCfg', { provider, alphaKey });
 				qs('#settingsStatus').textContent = 'Saved';
 				setTimeout(() => { qs('#settingsStatus').textContent = ''; }, 1500);
 			}
-					function clearSettings() { localStorage.removeItem('llmCfg'); localStorage.removeItem('proxyCfg'); qs('#llmBase').value = ''; qs('#llmModel').value=''; qs('#llmKey').value=''; qs('#proxyBase').value=''; qs('#proxyMode').value='path'; qs('#proxyAlways').checked=true; qs('#settingsStatus').textContent = 'Cleared'; setTimeout(()=>qs('#settingsStatus').textContent='', 1500); }
+					function clearSettings() { localStorage.removeItem('llmCfg'); localStorage.removeItem('proxyCfg'); localStorage.removeItem('dataCfg'); qs('#llmBase').value = ''; qs('#llmModel').value=''; qs('#llmKey').value=''; qs('#proxyBase').value=''; qs('#proxyMode').value='path'; qs('#proxyAlways').checked=true; qs('#provider').value='yahoo'; qs('#alphaKey').value=''; qs('#settingsStatus').textContent = 'Cleared'; setTimeout(()=>qs('#settingsStatus').textContent='', 1500); }
 
 			// --- Events ---
 			window.addEventListener('DOMContentLoaded', async () => {
